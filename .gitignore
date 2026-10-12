@@ -24,3 +24,7 @@ backend/app/ml_models/
 ~$*.docx
 ~$*.xlsx
 ~$*.pptx
+
+# macOS
+.DS_Store
+**/.DS_Store
