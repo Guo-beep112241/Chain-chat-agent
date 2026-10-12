@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -28,7 +28,7 @@ from app.services import ml_scoring
 
 POLITE_CLOSE_REPLY = "感谢您提供资料。当前供货条件与我们的采购要求暂不匹配，本次暂不继续洽谈。"
 
-# 资质文件本地存储（人工核验模式）：供应商上传，商家在谈判页查看并标记核验结果。
+# 资质文件存储：字节直接入库（见 models.QualificationFile.data），此路径保留仅供测试 monkeypatch 与本地旧数据迁移参考。
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
 ALLOWED_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -53,6 +53,7 @@ def _patch_sqlite_columns(engine) -> None:
             ("ocr_status", "VARCHAR(32) DEFAULT 'not_checked'"),
             ("ocr_company", "VARCHAR(255) DEFAULT ''"),
             ("ocr_detail", "VARCHAR(500) DEFAULT ''"),
+            ("data", "BLOB"),
         ),
         "procurement_rules": (
             ("scoring_model", "VARCHAR(32) DEFAULT 'custom_rule'"),
@@ -278,15 +279,13 @@ async def upload_qualification_file(
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_UPLOAD_SUFFIXES:
         raise HTTPException(status_code=415, detail="仅支持 jpg / jpeg / png / webp 图片或 pdf 文件")
-    data = await file.read()
-    if not data:
+    content = await file.read()
+    if not content:
         raise HTTPException(status_code=422, detail="文件内容为空")
-    if len(data) > MAX_UPLOAD_BYTES:
+    if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="单个文件不能超过 5MB")
     file_id = secrets.token_hex(16)
     stored_name = f"{file_id}{suffix}"
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    (UPLOAD_DIR / stored_name).write_bytes(data)
     original_name = file.filename or stored_name
     content_type = file.content_type or ""
 
@@ -297,7 +296,7 @@ async def upload_qualification_file(
         ocr_status, ocr_detail = "unavailable", "识别服务未配置，转人工核验"
     else:
         try:
-            result = await read_business_license(data, is_pdf=(suffix == ".pdf"))
+            result = await read_business_license(content, is_pdf=(suffix == ".pdf"))
         except (httpx.HTTPError, KeyError, TypeError, ValueError):
             ocr_status, ocr_detail = "unavailable", "识别服务调用失败，转人工核验"
         else:
@@ -309,7 +308,7 @@ async def upload_qualification_file(
             else:
                 ocr_status, ocr_detail = "mismatch", f"识别公司名「{ocr_company}」与填写企业名「{company_name}」不一致"
 
-    row = QualificationFile(id=file_id, supplier_id=None, original_name=original_name, stored_name=stored_name, content_type=content_type, size_bytes=len(data), ocr_status=ocr_status, ocr_company=ocr_company, ocr_detail=ocr_detail)
+    row = QualificationFile(id=file_id, supplier_id=None, original_name=original_name, stored_name=stored_name, content_type=content_type, size_bytes=len(content), data=content, ocr_status=ocr_status, ocr_company=ocr_company, ocr_detail=ocr_detail)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -321,10 +320,13 @@ def download_qualification_file(file_id: str, db: Session = Depends(get_db), _ad
     row = db.get(QualificationFile, file_id)
     if row is None:
         raise HTTPException(status_code=404, detail="资质文件不存在")
-    path = UPLOAD_DIR / row.stored_name
-    if not path.exists():
+    if not row.data:
         raise HTTPException(status_code=404, detail="文件已丢失，请联系供应商重新上传")
-    return FileResponse(path, filename=row.original_name, media_type=row.content_type or None)
+    return Response(
+        content=row.data,
+        media_type=row.content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{row.original_name}"'},
+    )
 
 
 @app.post("/api/qualification-files/{file_id}/verify", response_model=QualificationFileOut)

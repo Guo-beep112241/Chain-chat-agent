@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./liantan.db"
     frontend_origin: str = "http://localhost:3000"
     admin_token: str = "lantan-admin-demo-2025"
+    # 采购方（商家）初始登录密码：公开部署时务必通过环境变量改成强密码。
+    merchant_password: str = "链谈Agent123"
     deepseek_api_key: str | None = None
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com"

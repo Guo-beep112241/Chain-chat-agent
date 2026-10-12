@@ -1,0 +1,37 @@
+# Render Blueprint —— 一键部署后端 FastAPI 服务。
+# 用法：Render 控制台 → New → Blueprint → 连接本仓库，Render 会自动读取此文件。
+# 需要你在部署过程中填写的值（sync: false）会弹出输入框；其余用默认值即可。
+services:
+  - type: web
+    name: liantan-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    healthCheckPath: /docs
+    envVars:
+      # 前端部署后的网址，例如 https://your-app.vercel.app（用于 CORS，必填）
+      - key: FRONTEND_ORIGIN
+        sync: false
+      # Supabase 数据库连接串，格式：postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres（必填）
+      - key: DATABASE_URL
+        sync: false
+      # 大模型密钥（选填：不填则用本地可重复演示回复）
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      # 百度 OCR（选填：不填则资质上传转人工核验）
+      - key: BAIDU_API_KEY
+        sync: false
+      - key: BAIDU_SECRET_KEY
+        sync: false
+      # 商家初始登录密码（必填，公开部署务必改成强密码）
+      - key: MERCHANT_PASSWORD
+        sync: false
+      # 演示用管理员令牌：公开部署请留空以禁用该兜底（改走商家密码登录）
+      - key: ADMIN_TOKEN
+        sync: false

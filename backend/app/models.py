@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -92,6 +92,8 @@ class QualificationFile(Base):
     original_name: Mapped[str] = mapped_column(String(255))
     stored_name: Mapped[str] = mapped_column(String(128))
     content_type: Mapped[str] = mapped_column(String(128), default="")
+    # 文件字节直接入库（SQLite 用 BLOB / PostgreSQL 用 BYTEA）：云主机磁盘不持久，改存数据库避免重启丢失。
+    data: Mapped[bytes] = mapped_column(LargeBinary, default=b"")
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     # OCR 自动核验结果：not_checked / passed / mismatch / not_applicable / unavailable

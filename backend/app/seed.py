@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import MerchantAccount, Product, ProcurementRule
 from app.security import hash_password
 
@@ -53,7 +54,7 @@ def seed_demo_data(db: Session) -> None:
 
 
 def seed_merchant_account(db: Session) -> None:
-    """幂等写入唯一采购方账号（虚构「小鹿生活馆」），默认密码 链谈Agent123，可在账号安全里改。"""
+    """幂等写入唯一采购方账号（虚构「小鹿生活馆」）。初始密码取 MERCHANT_PASSWORD 环境变量，可在账号安全里改。"""
     if db.scalar(select(MerchantAccount.id).limit(1)) is not None:
         return
     db.add(
@@ -62,7 +63,7 @@ def seed_merchant_account(db: Session) -> None:
             logo_emoji="🦌",
             contact="",
             category="",
-            password_hash=hash_password("链谈Agent123"),
+            password_hash=hash_password(get_settings().merchant_password),
         )
     )
     db.commit()
