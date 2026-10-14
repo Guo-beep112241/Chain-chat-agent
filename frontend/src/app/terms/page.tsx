@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function TermsPage() {
   return (
     <div className="animate-rise mx-auto flex min-h-[calc(100vh-4rem)] max-w-2xl flex-col justify-center py-8">
-      <Link href="/" className="mb-6 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"><ArrowLeft className="size-3.5" />返回</Link>
+      <Link href="/register" className="mb-6 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"><ArrowLeft className="size-3.5" />返回注册</Link>
 
       <Card className="overflow-hidden">
         <div className="h-2 bg-[var(--accent)]" />
@@ -25,6 +26,9 @@ export default function TermsPage() {
             <p>
               本须知为占位文案，正式上线前请替换为完整、合规的《用户协议》与《隐私政策》。
             </p>
+          </div>
+          <div className="mt-6">
+            <Link href="/register"><Button variant="accent" className="w-full">已阅读，返回注册</Button></Link>
           </div>
         </CardContent>
       </Card>

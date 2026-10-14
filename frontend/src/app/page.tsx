@@ -7,6 +7,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { clearMerchantAuth, merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -208,10 +209,7 @@ export default function HomePage() {
                       <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
                       <Input className="pl-9" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="登录账号" autoFocus />
                     </div>
-                    <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                      <Input type="password" className="pl-9" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="登录密码" onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }} />
-                    </div>
+                    <PasswordInput leadingIcon={<KeyRound className="size-4" />} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="登录密码" onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }} />
                   </div>
                 ) : (
                   <div className="mt-4 space-y-3">

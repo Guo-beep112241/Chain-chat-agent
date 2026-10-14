@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ArrowLeft, CheckCircle2, KeyRound, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { changeMerchantPassword } from "@/lib/api";
 
 // 与后端一致：长度 > 8 位，须同时包含英文、数字。
@@ -63,9 +63,9 @@ export default function SecurityPage() {
             </div>
           ) : (
             <form onSubmit={submit} className="space-y-5">
-              <label className="block"><span className="text-xs font-semibold">原密码</span><div className="relative mt-2"><KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" /><Input type="password" className="pl-9" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="请输入当前密码" autoComplete="current-password" /></div></label>
-              <label className="block"><span className="text-xs font-semibold">新密码</span><div className="relative mt-2"><ShieldCheck className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" /><Input type="password" className="pl-9" value={nextPw} onChange={(e) => setNextPw(e.target.value)} placeholder="大于 8 位，含英文 + 数字" autoComplete="new-password" /></div></label>
-              <label className="block"><span className="text-xs font-semibold">确认新密码</span><div className="relative mt-2"><ShieldCheck className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" /><Input type="password" className="pl-9" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="再次输入新密码" autoComplete="new-password" /></div></label>
+              <label className="block"><span className="text-xs font-semibold">原密码</span><div className="relative mt-2"><PasswordInput leadingIcon={<KeyRound className="size-4" />} value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="请输入当前密码" autoComplete="current-password" /></div></label>
+              <label className="block"><span className="text-xs font-semibold">新密码</span><div className="relative mt-2"><PasswordInput leadingIcon={<ShieldCheck className="size-4" />} value={nextPw} onChange={(e) => setNextPw(e.target.value)} placeholder="大于 8 位，含英文 + 数字" autoComplete="new-password" /></div></label>
+              <label className="block"><span className="text-xs font-semibold">确认新密码</span><div className="relative mt-2"><PasswordInput leadingIcon={<ShieldCheck className="size-4" />} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="再次输入新密码" autoComplete="new-password" /></div></label>
               <div className="rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3 text-xs leading-5 text-[var(--muted)]">密码规则：长度大于 8 位 · 至少 1 个英文字母 · 至少 1 个数字。</div>
               {error && <div className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger-faint)] p-3 text-xs text-[var(--danger)]">{error}</div>}
               <div className="flex gap-3 pt-1">
