@@ -12,7 +12,6 @@ from app.database import Base, get_db
 from app.main import app
 from app.seed import seed_demo_data, seed_merchant_account
 
-ADMIN_HEADERS = {"Authorization": "Bearer lantan-admin-demo-2025"}
 PHONE = "13700000000"
 
 
@@ -39,6 +38,17 @@ def make_client(monkeypatch, upload_dir: Path) -> TestClient:
 
     monkeypatch.setattr(main_module, "read_business_license", fake_ocr)
     return TestClient(app)
+
+
+def merchant_headers(client: TestClient) -> dict:
+    """用商家账号密码登录，拿真实的商家 token。
+
+    之前测试直接用一个硬编码的管理员令牌，那依赖 config 里的默认后门值；
+    后门已移除，测试改为走真实登录路径（顺带覆盖了登录接口本身）。
+    """
+    response = client.post("/api/auth/merchant/login", json={"account": "admin", "password": "链谈Agent123"})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
 def login_headers(client: TestClient) -> dict:
@@ -84,15 +94,15 @@ def test_upload_claim_verify_flow(monkeypatch):
     result = client.post("/api/suppliers/evaluate", json=payload([uploaded["id"]]), headers=headers).json()
     negotiation_id = result["negotiation_id"]
 
-    detail = client.get(f"/api/negotiations/{negotiation_id}", headers=ADMIN_HEADERS).json()
+    detail = client.get(f"/api/negotiations/{negotiation_id}", headers=merchant_headers(client)).json()
     files = detail["supplier"]["qualification_files"]
     assert len(files) == 1 and files[0]["id"] == uploaded["id"]
 
-    served = client.get(f"/api/uploads/{uploaded['id']}", headers=ADMIN_HEADERS)
+    served = client.get(f"/api/uploads/{uploaded['id']}", headers=merchant_headers(client))
     assert served.status_code == 200
     assert served.content == b"\x89PNG fake-bytes"
 
-    toggled = client.post(f"/api/qualification-files/{uploaded['id']}/verify", headers=ADMIN_HEADERS).json()
+    toggled = client.post(f"/api/qualification-files/{uploaded['id']}/verify", headers=merchant_headers(client)).json()
     assert toggled["verified"] is True
 
     assert client.get(f"/api/uploads/{uploaded['id']}").status_code == 401  # 无令牌不可下载

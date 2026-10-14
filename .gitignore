@@ -28,3 +28,5 @@ backend/app/ml_models/
 # macOS
 .DS_Store
 **/.DS_Store
+# 本地环境变量备份
+backend/.env.bak-*

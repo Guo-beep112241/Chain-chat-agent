@@ -13,7 +13,6 @@ from app.seed import seed_demo_data, seed_merchant_account
 from app.services.llm import FALLBACK_REPLY, SERVICE_UNAVAILABLE_NOTICE, NegotiationTurn, parse_negotiation_turn
 from app.services.term_extraction import extract_supplier_terms
 
-ADMIN_HEADERS = {"Authorization": "Bearer lantan-admin-demo-2025"}
 PHONE = "13900000000"
 
 
@@ -97,6 +96,17 @@ def make_client(monkeypatch, turn: NegotiationTurn) -> TestClient:
     return TestClient(app)
 
 
+def merchant_headers(client: TestClient) -> dict:
+    """用商家账号密码登录，拿真实的商家 token。
+
+    之前测试直接用一个硬编码的管理员令牌，那依赖 config 里的默认后门值；
+    后门已移除，测试改为走真实登录路径（顺带覆盖了登录接口本身）。
+    """
+    response = client.post("/api/auth/merchant/login", json={"account": "admin", "password": "链谈Agent123"})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 def login_headers(client: TestClient) -> dict:
     code = client.post("/api/auth/supplier/request-code", json={"phone": PHONE}).json()["code"]
     token = client.post("/api/auth/supplier/login", json={"phone": PHONE, "code": code}).json()["access_token"]
@@ -144,7 +154,7 @@ def test_concession_marks_candidate_but_ai_continues_until_handoff(monkeypatch):
     assert follow_up["assistant_message"] is not None
     assert follow_up["status"] == "ai_active"
 
-    handed_off = client.post(f"/api/negotiations/{result['negotiation_id']}/handoff", headers=ADMIN_HEADERS).json()
+    handed_off = client.post(f"/api/negotiations/{result['negotiation_id']}/handoff", headers=merchant_headers(client)).json()
     assert handed_off["status"] == "human_active"
     after_handoff = client.post(
         f"/api/negotiations/{result['negotiation_id']}/messages",
@@ -154,7 +164,7 @@ def test_concession_marks_candidate_but_ai_continues_until_handoff(monkeypatch):
     assert after_handoff["assistant_message"] is None
     assert after_handoff["status"] == "human_active"
 
-    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=ADMIN_HEADERS).json()
+    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=merchant_headers(client)).json()
     assert any("重新校验评分" in message["content"] for message in detail["messages"])
 
 
@@ -169,7 +179,7 @@ def test_local_terms_recalculate_when_model_returns_plain_reply(monkeypatch):
         json={"content": "好的，报价从24.4元修改为21元/件。"},
         headers=headers,
     )
-    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=ADMIN_HEADERS).json()
+    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=merchant_headers(client)).json()
     assert detail["quoted_price"] == 21
     assert detail["score"] > original_score
     assert any("报价 ¥21/件" in message["content"] for message in detail["messages"] if message["sender"] == "system")
@@ -184,7 +194,7 @@ def test_confirming_same_exact_term_still_rechecks_score(monkeypatch):
         json={"content": "账期确认维持30天不变。"},
         headers=headers,
     )
-    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=ADMIN_HEADERS).json()
+    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=merchant_headers(client)).json()
     assert any("明确条款与当前记录一致" in message["content"] for message in detail["messages"] if message["sender"] == "system")
 
 
@@ -235,7 +245,7 @@ def test_model_failure_is_recorded_as_system_notice_not_ai_reply(monkeypatch):
     # 没有 AI 回复可返回，前端只负责展示一条系统提示。
     assert chat["assistant_message"] is None
 
-    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=ADMIN_HEADERS).json()
+    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=merchant_headers(client)).json()
     assert not any(message["sender"] == "ai" for message in detail["messages"])
     assert any(
         message["sender"] == "system" and message["content"] == SERVICE_UNAVAILABLE_NOTICE
@@ -251,11 +261,11 @@ def test_dashboard_summary_supports_time_range(monkeypatch):
     headers = login_headers(client)
     result = submit_offer(client, headers)
 
-    all_time = client.get("/api/dashboard/summary", headers=ADMIN_HEADERS).json()
+    all_time = client.get("/api/dashboard/summary", headers=merchant_headers(client)).json()
     assert all_time["range_days"] == 0
     assert all_time["range_received"] == len(all_time["items"]) >= 1
 
-    recent = client.get("/api/dashboard/summary?days=7", headers=ADMIN_HEADERS).json()
+    recent = client.get("/api/dashboard/summary?days=7", headers=merchant_headers(client)).json()
     assert recent["range_days"] == 7
     # 刚提交的会话必然落在最近 7 天内。
     assert any(item["id"] == result["negotiation_id"] for item in recent["items"])

@@ -38,6 +38,8 @@ git push origin main
    | `DATABASE_URL` | 第 1 步做好的 Supabase 连接串 |
    | `MERCHANT_PASSWORD` | 商家后台登录密码，**设个强密码** |
    | `ADMIN_TOKEN` | **留空**（禁用演示令牌兜底，改走密码登录） |
+   | `ENVIRONMENT` | `dev`（公开演示）或 `prod`（正式运营，启动会做配置自检） |
+   | `DEMO_MODE` | `true`=验证码直接回显（无短信服务时必需）；接入短信后改 `false` |
    | `DEEPSEEK_API_KEY` | 可选，留空则用可重复演示回复 |
    | `BAIDU_API_KEY` / `BAIDU_SECRET_KEY` | 可选，留空则资质上传转人工核验 |
 
@@ -69,6 +71,8 @@ git push origin main
 
 - 到「账号安全」页把商家密码再改一次（第一版密码可能已在你填环境变量时截图/复制过）。
 - 浏览器按 F12 看不到管理员令牌了（已禁用 `NEXT_PUBLIC_ADMIN_TOKEN` 与后端 `ADMIN_TOKEN` 兜底）。
+- ⚠️ **公开演示站请勿把 `ENVIRONMENT` 设为 `prod`**：当前没有接入短信服务，必须依赖 `DEMO_MODE=true`，
+  而 prod 自检会拒绝这个组合导致服务起不来。接入短信服务后：`DEMO_MODE=false` + `ENVIRONMENT=prod` + 商家强密码。
 
 ## 关于中国大陆访问（重要）
 

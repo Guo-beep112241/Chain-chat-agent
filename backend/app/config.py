@@ -5,9 +5,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "链谈 Agent API"
+    # dev / prod。设为 prod 时启动会做一轮强制自检（见 app/startup_checks.py）。
+    environment: str = "dev"
     database_url: str = "sqlite:///./liantan.db"
     frontend_origin: str = "http://localhost:3000"
-    admin_token: str = "lantan-admin-demo-2025"
+    # 演示用管理员令牌。留空（默认）即完全禁用这条兜底鉴权路径；
+    # 历史上这里有一个硬编码默认值，等于公开部署时的人人可登录后门。
+    admin_token: str = ""
+    # 演示模式：验证码不发送短信，而是直接回给前端，方便没有短信服务时跑通流程。
+    # 打开意味着「任何人可以对任意手机号拿到验证码并登录」，因此 ENVIRONMENT=prod 时必须关闭。
+    demo_mode: bool = True
     # 采购方（商家）登录凭证：公开部署时务必通过环境变量改成强密码。
     merchant_password: str = "链谈Agent123"
     # 账号 + 密码登录的账号，以及手机验证码登录绑定的手机号（演示值，可被环境变量覆盖）。

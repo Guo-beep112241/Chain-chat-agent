@@ -224,8 +224,10 @@ class SupplierCodeRequest(BaseModel):
 
 class SupplierCodeOut(BaseModel):
     phone: str
-    code: str
+    # 仅演示模式（DEMO_MODE=true）下才会带上验证码；正式环境应接入短信服务并留空。
+    code: str | None = None
     expires_in: int
+    demo_mode: bool = False
 
 
 class SupplierLoginRequest(BaseModel):
@@ -254,8 +256,9 @@ class MerchantCodeLoginIn(BaseModel):
 
 class MerchantCodeOut(BaseModel):
     phone: str
-    code: str
+    code: str | None = None
     expires_in: int
+    demo_mode: bool = False
 
 
 class MerchantRegisterIn(BaseModel):

@@ -32,6 +32,17 @@ services:
       # 商家初始登录密码（必填，公开部署务必改成强密码）
       - key: MERCHANT_PASSWORD
         sync: false
-      # 演示用管理员令牌：公开部署请留空以禁用该兜底（改走商家密码登录）
+      # 演示用管理员令牌：留空即禁用该兜底鉴权，公开部署必须留空
       - key: ADMIN_TOKEN
         sync: false
+      # 运行环境：dev / prod。当前是公开演示站，保持 dev。
+      # 正式运营时把 ENVIRONMENT 改成 prod——届时启动会强制自检：
+      # DEMO_MODE 必须为 false、DATABASE_URL 不能是 SQLite、ADMIN_TOKEN 必须留空、
+      # MERCHANT_PASSWORD 不能是默认值、FRONTEND_ORIGIN 必须是 https，任一不满足都拒绝启动。
+      - key: ENVIRONMENT
+        value: dev
+      # 演示模式：验证码不发送短信、直接回给前端。
+      # 本站尚未接入短信服务，因此公开演示必须保持 true，否则供应商无法登录。
+      # 接入短信服务后改为 false，并把 ENVIRONMENT 切到 prod。
+      - key: DEMO_MODE
+        value: "true"

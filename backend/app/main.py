@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -14,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
+from app.startup_checks import validate_settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
 from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
@@ -37,6 +39,8 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # 配置自检放在最前面：生产环境配错时直接拒绝启动，而不是带病运行。
+    validate_settings(settings)
     Base.metadata.create_all(bind=engine)
     _patch_sqlite_columns(engine)
     _drop_products_name_unique_index(engine)
@@ -108,6 +112,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+logger = logging.getLogger("liantan")
+
+
+def _mask_phone(phone: str) -> str:
+    """日志里不出现完整手机号。"""
+    return f"{phone[:3]}****{phone[-4:]}" if len(phone) >= 7 else "***"
 
 
 def get_negotiation_or_404(db: Session, negotiation_id: int) -> Negotiation:
@@ -211,9 +223,12 @@ def health() -> dict:
 def request_supplier_code(payload: SupplierCodeRequest):
     phone = payload.phone.strip()
     code = issue_code(phone)
-    # 演示模式：验证码不发送短信，直接返回前端并打印到日志。
-    print(f"[演示验证码] 手机号 {phone} 的登录验证码为：{code}")
-    return SupplierCodeOut(phone=phone, code=code, expires_in=300)
+    if not settings.demo_mode:
+        # 非演示模式必须真的把验证码发出去。当前没有接入短信服务商，
+        # 因此明确失败，而不是把验证码回给请求方（那等于任意手机号可被冒用登录）。
+        raise HTTPException(status_code=503, detail="短信服务未配置，暂时无法发送验证码")
+    logger.info("演示模式：已为 %s 生成登录验证码", _mask_phone(phone))
+    return SupplierCodeOut(phone=phone, code=code, expires_in=300, demo_mode=True)
 
 
 @app.post("/api/auth/supplier/login", response_model=SupplierTokenOut)
@@ -284,9 +299,10 @@ def request_merchant_code(payload: MerchantCodeRequest, db: Session = Depends(ge
     if account is None:
         raise HTTPException(status_code=404, detail="该手机号未绑定采购方账号")
     code = issue_code(phone)
-    # 演示模式：验证码不发送短信，直接返回前端并打印到日志。
-    print(f"[演示验证码] 采购方手机号 {phone} 的登录验证码为：{code}")
-    return MerchantCodeOut(phone=phone, code=code, expires_in=300)
+    if not settings.demo_mode:
+        raise HTTPException(status_code=503, detail="短信服务未配置，暂时无法发送验证码")
+    logger.info("演示模式：已为 %s 生成采购方登录验证码", _mask_phone(phone))
+    return MerchantCodeOut(phone=phone, code=code, expires_in=300, demo_mode=True)
 
 
 @app.post("/api/auth/merchant/login-code", response_model=MerchantTokenOut)
@@ -448,7 +464,7 @@ def toggle_qualification_verified(file_id: str, db: Session = Depends(get_db), m
 
 
 @app.get("/api/evaluations/datasets")
-def evaluation_datasets():
+def evaluation_datasets(_: MerchantAccount = Depends(require_merchant)):
     try:
         return {"datasets": dataset_summary(), "llm_configured": bool(settings.deepseek_api_key)}
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -456,7 +472,7 @@ def evaluation_datasets():
 
 
 @app.post("/api/evaluations/rules")
-def evaluate_rule_dataset():
+def evaluate_rule_dataset(_: MerchantAccount = Depends(require_merchant)):
     try:
         return run_rule_evaluation()
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -464,7 +480,7 @@ def evaluate_rule_dataset():
 
 
 @app.post("/api/evaluations/dialogues")
-async def evaluate_dialogue_dataset(payload: DialogueEvaluationIn):
+async def evaluate_dialogue_dataset(payload: DialogueEvaluationIn, _: MerchantAccount = Depends(require_merchant)):
     try:
         cases = dialogue_cases(payload.dialogue_type)[:payload.sample_size]
     except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
@@ -498,7 +514,7 @@ async def evaluate_dialogue_dataset(payload: DialogueEvaluationIn):
 
 
 @app.get("/api/ml/status")
-def ml_model_status():
+def ml_model_status(_: MerchantAccount = Depends(require_merchant)):
     try:
         return ml_scoring.status()
     except (OSError, ValueError) as exc:
@@ -506,7 +522,7 @@ def ml_model_status():
 
 
 @app.post("/api/ml/train")
-def ml_train_endpoint():
+def ml_train_endpoint(_: MerchantAccount = Depends(require_merchant)):
     try:
         return ml_scoring.train()
     except (OSError, KeyError, TypeError, ValueError, ImportError) as exc:
@@ -514,7 +530,7 @@ def ml_train_endpoint():
 
 
 @app.post("/api/ml/predict", response_model=MLPredictOut)
-def ml_predict_endpoint(payload: MLPredictIn):
+def ml_predict_endpoint(payload: MLPredictIn, _: MerchantAccount = Depends(require_merchant)):
     try:
         prediction = ml_scoring.predict_offer(
             quoted_price=payload.quoted_price,
@@ -537,7 +553,7 @@ def ml_predict_endpoint(payload: MLPredictIn):
 
 
 @app.post("/api/ml/evaluate")
-def ml_evaluate_endpoint():
+def ml_evaluate_endpoint(_: MerchantAccount = Depends(require_merchant)):
     try:
         return ml_scoring.evaluate()
     except (OSError, KeyError, TypeError, ValueError, ImportError) as exc:

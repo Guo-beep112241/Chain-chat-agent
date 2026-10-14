@@ -215,7 +215,7 @@ export function getDashboardSummary(days = 0) {
 export function getNegotiations() { return request<Negotiation[]>("/api/negotiations", undefined, "admin"); }
 export function sendHumanMessage(id: number, content: string) { return request<Negotiation>(`/api/negotiations/${id}/human-messages`, { method: "POST", body: JSON.stringify({ content }) }, "admin"); }
 export function resumeAiNegotiation(id: number) { return request<Negotiation>(`/api/negotiations/${id}/resume-ai`, { method: "POST" }, "admin"); }
-export function getEvaluationDatasets() { return request<{ datasets: EvaluationDataset[]; llm_configured: boolean }>("/api/evaluations/datasets"); }
-export function runRuleEvaluation() { return request<RuleEvaluationResult>("/api/evaluations/rules", { method: "POST" }); }
-export function runDialogueEvaluation(sampleSize: number, dialogueType?: string) { return request<DialogueEvaluationResult>("/api/evaluations/dialogues", { method: "POST", body: JSON.stringify({ sample_size: sampleSize, dialogue_type: dialogueType || null }) }); }
-export function runMLEvaluation() { return request<MLEvaluationResult>("/api/ml/evaluate", { method: "POST" }); }
+export function getEvaluationDatasets() { return request<{ datasets: EvaluationDataset[]; llm_configured: boolean }>("/api/evaluations/datasets", undefined, "admin"); }
+export function runRuleEvaluation() { return request<RuleEvaluationResult>("/api/evaluations/rules", { method: "POST" }, "admin"); }
+export function runDialogueEvaluation(sampleSize: number, dialogueType?: string) { return request<DialogueEvaluationResult>("/api/evaluations/dialogues", { method: "POST", body: JSON.stringify({ sample_size: sampleSize, dialogue_type: dialogueType || null }) }, "admin"); }
+export function runMLEvaluation() { return request<MLEvaluationResult>("/api/ml/evaluate", { method: "POST" }, "admin"); }
