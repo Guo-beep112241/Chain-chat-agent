@@ -38,3 +38,8 @@ social-preview.png
 
 # 规划/汇报类文档：保留在本地，不随代码库分发
 *.docx
+
+# 测试覆盖率产物
+.coverage
+.coverage.*
+htmlcov/
