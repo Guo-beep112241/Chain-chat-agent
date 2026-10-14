@@ -96,7 +96,11 @@ class QualificationFile(Base):
     stored_name: Mapped[str] = mapped_column(String(128))
     content_type: Mapped[str] = mapped_column(String(128), default="")
     # 文件字节直接入库（SQLite 用 BLOB / PostgreSQL 用 BYTEA）：云主机磁盘不持久，改存数据库避免重启丢失。
-    data: Mapped[bytes] = mapped_column(LargeBinary, default=b"")
+    #
+    # deferred=True：列表类接口（谈判列表、供应商谈判、仪表盘）都会 selectinload 资质文件，
+    # 但响应模型里根本没有 data 字段——不延迟加载的话，每次列会话都会把
+    # 所有附件（单个上限 5MB）读进内存再丢掉。只有真正下载文件时才触发这一列的查询。
+    data: Mapped[bytes] = mapped_column(LargeBinary, default=b"", deferred=True)
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     # OCR 自动核验结果：not_checked / passed / mismatch / not_applicable / unavailable

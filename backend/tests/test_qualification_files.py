@@ -37,7 +37,10 @@ def make_client(monkeypatch, upload_dir: Path) -> TestClient:
         return {"company": "鼎盛制造厂", "credit_code": "91440300TEST00000X", "legal_person": "张三"}
 
     monkeypatch.setattr(main_module, "read_business_license", fake_ocr)
-    return TestClient(app)
+    client = TestClient(app)
+    # 暴露 engine，供测试统计实际发出的 SQL（见 test_list_endpoints_do_not_load_file_bytes）
+    client.app_engine = engine  # type: ignore[attr-defined]
+    return client
 
 
 def merchant_headers(client: TestClient) -> dict:
@@ -149,3 +152,55 @@ def test_ocr_mismatch_and_failure_paths(monkeypatch):
         headers=headers,
     ).json()
     assert other["ocr_status"] == "not_applicable"
+
+
+def test_list_endpoints_do_not_load_file_bytes(monkeypatch):
+    """列表/详情接口不应把附件字节读进内存。
+
+    QualificationFile.data 是 deferred 列；若有人去掉这个设置，
+    每次列会话都会把所有附件（单个上限 5MB）加载进来再丢弃。
+    这里直接统计实际执行的 SQL，确认没有 select 到 data 列。
+    """
+    from sqlalchemy import event
+
+    upload_dir = Path(tempfile.mkdtemp(prefix="liantan-test-uploads-"))
+    client = make_client(monkeypatch, upload_dir)
+    headers = login_headers(client)
+
+    uploaded = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("营业执照.png", b"\x89PNG fake-bytes", "image/png")},
+        data={"company_name": "鼎盛制造厂"},
+        headers=headers,
+    ).json()
+    result = client.post(
+        "/api/suppliers/evaluate",
+        json={
+            "product_id": 1, "company_name": "鼎盛制造厂", "contact_name": "张三", "phone": PHONE,
+            "region": "河南郑州", "quoted_price": 24.4, "moq": 150, "lead_days": 10, "payment_days": 30,
+            "qualifications": ["营业执照"], "qualification_file_ids": [uploaded["id"]], "cooperation_rating": 60,
+        },
+        headers=headers,
+    ).json()
+    negotiation_id = result["negotiation_id"]
+
+    statements: list[str] = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(client.app_engine, "before_cursor_execute", capture)
+    try:
+        client.get("/api/negotiations", headers=merchant_headers(client))
+        client.get(f"/api/negotiations/{negotiation_id}", headers=merchant_headers(client))
+        client.get("/api/dashboard/summary", headers=merchant_headers(client))
+    finally:
+        event.remove(client.app_engine, "before_cursor_execute", capture)
+
+    loaded_bytes = [s for s in statements if "qualification_files.data" in s]
+    assert not loaded_bytes, f"这些查询不该读取附件字节：{loaded_bytes}"
+
+    # 但真正下载文件时仍必须能取到内容。
+    served = client.get(f"/api/uploads/{uploaded['id']}", headers=merchant_headers(client))
+    assert served.status_code == 200
+    assert served.content == b"\x89PNG fake-bytes"
