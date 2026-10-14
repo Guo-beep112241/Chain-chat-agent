@@ -23,6 +23,7 @@ import {
   Pause,
   RefreshCw,
   RotateCcw,
+  Search,
   ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,37 @@ const statusText: Record<string, string> = {
 };
 const MESSAGE_PAGE_SIZE = 10;
 
+type SessionFilter = "all" | "pending" | "ai" | "human" | "closed";
+type SessionSort = "recent" | "score";
+
+const SESSION_FILTERS: { key: SessionFilter; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "pending", label: "待接管" },
+  { key: "ai", label: "AI 谈判中" },
+  { key: "human", label: "人工中" },
+  { key: "closed", label: "已结束" },
+];
+
+function matchesFilter(item: Negotiation, filter: SessionFilter): boolean {
+  if (filter === "pending") return item.classification === "qualified" && item.status === "ai_active";
+  if (filter === "ai") return item.status === "ai_active";
+  if (filter === "human") return item.status === "human_active";
+  if (filter === "closed") return item.status === "closed";
+  return true;
+}
+
+// 会话列表按「最近有消息」排序：后端返回顺序不保证，历史会话会插在中间。
+// 注意不能直接取 messages 的最后一条——后端关系上没有 ORDER BY，
+// 因此这里取所有消息时间的最大值，避免排序结果不稳定。
+function lastActivityAt(item: Negotiation): number {
+  let latest = 0;
+  for (const message of item.messages) {
+    const time = new Date(message.created_at).getTime();
+    if (Number.isFinite(time) && time > latest) latest = time;
+  }
+  return latest;
+}
+
 export default function NegotiatePage() {
   const [sessions, setSessions] = useState<Negotiation[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -61,6 +93,9 @@ export default function NegotiatePage() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<SessionFilter>("all");
+  const [sort, setSort] = useState<SessionSort>("recent");
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(MESSAGE_PAGE_SIZE);
   const messageViewportRef = useRef<HTMLDivElement>(null);
@@ -78,6 +113,31 @@ export default function NegotiatePage() {
   const hasOlderMessages = Boolean(
     active && visibleMessageCount < active.messages.length,
   );
+
+  // 会话列表的筛选、搜索与排序：会话一多（几十上百条）时，
+  // 原来只能靠后端返回顺序一条条翻，找不到人。
+  const filterCounts = useMemo(() => {
+    const counts: Record<SessionFilter, number> = { all: sessions.length, pending: 0, ai: 0, human: 0, closed: 0 };
+    for (const item of sessions) {
+      for (const key of ["pending", "ai", "human", "closed"] as SessionFilter[]) {
+        if (matchesFilter(item, key)) counts[key] += 1;
+      }
+    }
+    return counts;
+  }, [sessions]);
+
+  const visibleSessions = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    const filtered = sessions.filter((item) => {
+      if (!matchesFilter(item, filter)) return false;
+      if (!keyword) return true;
+      return [item.supplier.company_name, item.product.name, item.supplier.region]
+        .some((value) => (value ?? "").toLowerCase().includes(keyword));
+    });
+    return [...filtered].sort((a, b) =>
+      sort === "score" ? b.score - a.score : lastActivityAt(b) - lastActivityAt(a),
+    );
+  }, [sessions, filter, query, sort]);
 
   const pinToBottom = useCallback(() => {
     const viewport = messageViewportRef.current;
@@ -252,8 +312,17 @@ export default function NegotiatePage() {
 
   if (loading)
     return (
-      <div className="py-20 text-center text-sm text-[var(--muted)]">
-        正在读取谈判会话…
+      <div className="animate-rise">
+        <div className="mb-5">
+          <div className="h-4 w-24 animate-pulse rounded-full bg-[var(--paper-deep)]" />
+          <div className="mt-4 h-8 w-64 animate-pulse rounded-[var(--radius-control)] bg-[var(--paper-deep)]" />
+          <div className="mt-3 h-4 w-44 animate-pulse rounded-full bg-[var(--paper-deep)]" />
+        </div>
+        <div className="grid min-h-[680px] gap-5 lg:grid-cols-[260px_1fr] xl:grid-cols-[270px_1fr_300px]">
+          <div className="h-[680px] animate-pulse rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)]" />
+          <div className="h-[680px] animate-pulse rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)]" />
+          <div className="h-[680px] animate-pulse rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)] lg:col-span-2 xl:col-span-1" />
+        </div>
       </div>
     );
   if (!active)
@@ -304,7 +373,7 @@ export default function NegotiatePage() {
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--accent-strong)]">
             <span className="h-px w-5 bg-[var(--accent)]" />
-            多会话谈判工作台
+            实时谈判
           </div>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {active.supplier.company_name}
@@ -390,14 +459,47 @@ export default function NegotiatePage() {
       <div className="grid min-h-[680px] gap-5 lg:grid-cols-[260px_1fr] xl:min-h-0 xl:flex-1 xl:grid-cols-[270px_1fr_300px] xl:overflow-hidden">
         <Card className="min-h-0 overflow-hidden">
           <CardContent className="flex h-full min-h-0 flex-col p-0">
-            <div className="border-b border-[var(--line)] p-4">
-              <div className="text-sm font-bold">洽谈会话</div>
-              <div className="mt-1 text-xs text-[var(--muted)]">
-                {sessions.length} 个供应商 · 点击切换
+            <div className="space-y-3 border-b border-[var(--line)] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-bold">洽谈会话</div>
+                <button
+                  type="button"
+                  onClick={() => setSort((current) => (current === "recent" ? "score" : "recent"))}
+                  className="rounded-[var(--radius-chip)] border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                >
+                  {sort === "recent" ? "最近活跃" : "评分最高"}
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索供应商、商品或地区"
+                  aria-label="搜索洽谈会话"
+                  className="h-8 w-full rounded-[var(--radius-chip)] border border-[var(--line)] bg-[var(--surface)] pl-8 pr-2 text-xs outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {SESSION_FILTERS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setFilter(item.key)}
+                    className={cn(
+                      "tnum rounded-[var(--radius-chip)] px-2 py-1 text-[11px] font-semibold transition",
+                      filter === item.key
+                        ? "bg-[var(--ink)] text-white"
+                        : "text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]",
+                    )}
+                  >
+                    {item.label} {filterCounts[item.key]}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="thin-scrollbar min-h-0 flex-1 divide-y divide-[var(--line)] overflow-y-auto">
-              {sessions.map((item) => (
+              {visibleSessions.length ? visibleSessions.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => selectSession(item.id)}
@@ -411,7 +513,7 @@ export default function NegotiatePage() {
                     <span className="truncate text-sm font-semibold">
                       {item.supplier.company_name}
                     </span>
-                    <span className="text-xs font-bold text-[var(--accent-strong)]">
+                    <span className="tnum text-xs font-bold text-[var(--accent-strong)]">
                       {item.score}
                     </span>
                   </div>
@@ -422,7 +524,12 @@ export default function NegotiatePage() {
                     {statusText[item.status] ?? item.status}
                   </div>
                 </button>
-              ))}
+              )) : (
+                <div className="px-4 py-10 text-center text-xs text-[var(--muted)]">
+                  <Inbox className="mx-auto mb-2 size-6" />
+                  {sessions.length ? "没有符合条件的会话" : "暂无洽谈会话"}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
