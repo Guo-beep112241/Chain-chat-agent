@@ -66,6 +66,9 @@ class DashboardItem(BaseModel):
     status: str
     classification: str
     is_today: bool
+    # 提交时间与最近活跃时间：前端据此展示日期、排序与做时间范围说明。
+    created_at: datetime
+    last_activity_at: datetime
 
 
 class DashboardSummary(BaseModel):
@@ -74,6 +77,9 @@ class DashboardSummary(BaseModel):
     qualified: int
     minutes_saved: int
     items: list[DashboardItem]
+    # 统计口径：range_days = 0 表示全部历史；range_received 为本口径下新提交的会话数。
+    range_days: int = 0
+    range_received: int = 0
 
 
 class DialogueEvaluationIn(BaseModel):

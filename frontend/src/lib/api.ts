@@ -69,8 +69,14 @@ export type ManagedProduct = {
   ml_model: string; ml_qualify_threshold: number; ml_eliminate_threshold: number;
 };
 
-export type DashboardItem = { id: number; supplier: string; product: string; score: number; price: number; moq: number; status: string; classification: string; is_today: boolean };
-export type DashboardSummary = { today_received: number; ai_active: number; qualified: number; minutes_saved: number; items: DashboardItem[] };
+export type DashboardItem = {
+  id: number; supplier: string; product: string; score: number; price: number; moq: number;
+  status: string; classification: string; is_today: boolean; created_at: string; last_activity_at: string;
+};
+export type DashboardSummary = {
+  today_received: number; ai_active: number; qualified: number; minutes_saved: number;
+  items: DashboardItem[]; range_days: number; range_received: number;
+};
 export type QualificationFile = { id: string; original_name: string; content_type: string; size_bytes: number; verified: boolean; ocr_status: string; ocr_company: string; ocr_detail: string; uploaded_at: string };
 export type Negotiation = {
   id: number; score: number; classification: string; status: string; quoted_price: number; moq: number; lead_days: number; payment_days: number;
@@ -202,7 +208,10 @@ export function getManagedProducts() { return request<ManagedProduct[]>("/api/pr
 export function createProduct(payload: Omit<ManagedProduct, "id" | "active">) { return request<ManagedProduct>("/api/products", { method: "POST", body: JSON.stringify(payload) }, "admin"); }
 export function updateProduct(id: number, payload: Omit<ManagedProduct, "id">) { return request<ManagedProduct>(`/api/products/${id}`, { method: "PUT", body: JSON.stringify(payload) }, "admin"); }
 export function disableProduct(id: number) { return request<{ ok: boolean; detail: string }>(`/api/products/${id}`, { method: "DELETE" }, "admin"); }
-export function getDashboardSummary() { return request<DashboardSummary>("/api/dashboard/summary", undefined, "admin"); }
+// days=0 表示全部历史；其余为「最近 N 天内新提交」的统计口径。
+export function getDashboardSummary(days = 0) {
+  return request<DashboardSummary>(`/api/dashboard/summary?days=${days}`, undefined, "admin");
+}
 export function getNegotiations() { return request<Negotiation[]>("/api/negotiations", undefined, "admin"); }
 export function sendHumanMessage(id: number, content: string) { return request<Negotiation>(`/api/negotiations/${id}/human-messages`, { method: "POST", body: JSON.stringify({ content }) }, "admin"); }
 export function resumeAiNegotiation(id: number) { return request<Negotiation>(`/api/negotiations/${id}/resume-ai`, { method: "POST" }, "admin"); }

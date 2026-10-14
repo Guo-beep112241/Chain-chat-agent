@@ -242,3 +242,25 @@ def test_model_failure_is_recorded_as_system_notice_not_ai_reply(monkeypatch):
         for message in detail["messages"]
     )
     assert not any(message["content"] == FALLBACK_REPLY for message in detail["messages"])
+
+
+def test_dashboard_summary_supports_time_range(monkeypatch):
+    """工作台汇总新增时间口径：默认全部历史，days=N 只统计最近 N 天新提交的会话。"""
+    turn = NegotiationTurn(reply="谢谢您的调整，我们继续沟通。")
+    client = make_client(monkeypatch, turn)
+    headers = login_headers(client)
+    result = submit_offer(client, headers)
+
+    all_time = client.get("/api/dashboard/summary", headers=ADMIN_HEADERS).json()
+    assert all_time["range_days"] == 0
+    assert all_time["range_received"] == len(all_time["items"]) >= 1
+
+    recent = client.get("/api/dashboard/summary?days=7", headers=ADMIN_HEADERS).json()
+    assert recent["range_days"] == 7
+    # 刚提交的会话必然落在最近 7 天内。
+    assert any(item["id"] == result["negotiation_id"] for item in recent["items"])
+
+    # 明细必须带上时间字段，前端才能展示日期与按活跃度排序。
+    sample = recent["items"][0]
+    assert sample["created_at"]
+    assert sample["last_activity_at"]

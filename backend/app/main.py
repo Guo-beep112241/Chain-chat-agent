@@ -2,12 +2,12 @@ import asyncio
 import json
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
 import httpx
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select
@@ -627,10 +627,38 @@ def disable_product(product_id: int, db: Session = Depends(get_db), merchant: Me
 
 
 @app.get("/api/dashboard/summary", response_model=DashboardSummary)
-def dashboard_summary(db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
+def dashboard_summary(
+    days: int = Query(0, ge=0, le=3650),
+    db: Session = Depends(get_db),
+    merchant: MerchantAccount = Depends(require_merchant),
+):
+    """工作台汇总。
+
+    days=0（默认）统计全部历史；days=N 表示只统计最近 N 天内新提交的会话，
+    所有指标与明细都按同一口径计算，避免「卡片是全部、列表是筛选后」这种错位。
+    """
     negotiations = db.scalars(select(Negotiation).where(Negotiation.merchant_id == merchant.id).options(selectinload(Negotiation.supplier), selectinload(Negotiation.product), selectinload(Negotiation.messages)).order_by(Negotiation.updated_at.desc())).all()
-    today = datetime.utcnow().date()
-    items = [DashboardItem(id=n.id, supplier=n.supplier.company_name, product=n.product.name, score=n.score, price=n.quoted_price, moq=n.moq, status=n.status, classification=n.classification, is_today=n.created_at.date() == today) for n in negotiations]
+    now = datetime.utcnow()
+    today = now.date()
+    if days:
+        cutoff = now - timedelta(days=days)
+        negotiations = [n for n in negotiations if n.created_at >= cutoff]
+    items = [
+        DashboardItem(
+            id=n.id,
+            supplier=n.supplier.company_name,
+            product=n.product.name,
+            score=n.score,
+            price=n.quoted_price,
+            moq=n.moq,
+            status=n.status,
+            classification=n.classification,
+            is_today=n.created_at.date() == today,
+            created_at=n.created_at,
+            last_activity_at=max((m.created_at for m in n.messages), default=n.created_at),
+        )
+        for n in negotiations
+    ]
     automated_messages = sum(1 for n in negotiations for m in n.messages if m.sender == "ai")
     return DashboardSummary(
         today_received=sum(1 for n in negotiations if n.created_at.date() == today),
@@ -638,6 +666,8 @@ def dashboard_summary(db: Session = Depends(get_db), merchant: MerchantAccount =
         qualified=sum(1 for n in negotiations if n.classification == "qualified"),
         minutes_saved=len(negotiations) * 5 + automated_messages * 3,
         items=items,
+        range_days=days,
+        range_received=len(negotiations),
     )
 
 
