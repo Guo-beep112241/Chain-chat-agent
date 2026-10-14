@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 链谈 Agent · 前端
 
-## Getting Started
+Next.js 15（App Router）+ TypeScript + Tailwind v4 + shadcn/ui 风格基础组件。
 
-First, run the development server:
+## 本地开发
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # 按需修改 NEXT_PUBLIC_API_URL
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+后端需要同时在 `../backend` 启动（默认 http://localhost:8000），
+否则页面会在控制台报 401/连接失败并显示「服务暂时不可用」。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 环境变量
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| 变量 | 说明 |
+| --- | --- |
+| `NEXT_PUBLIC_API_URL` | 后端地址。构建时内联，改动后必须重新 build |
+| `NEXT_PUBLIC_SHOW_DEBUG_ENTRY` | 设为 `true` 才显示洽谈页的「模拟供应商」自测视角，默认关闭 |
 
-## Learn More
+前端不携带任何管理员令牌，一律使用登录后拿到的商家 token。
 
-To learn more about Next.js, take a look at the following resources:
+## 目录结构
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```text
+src/app/                路由
+  (merchant)/           商家端（工作台 / 实时谈判 / 测评 / 账号安全），共用 AppShell
+  supplier/             供应商端（登录 / 提交方案 / 洽谈），共用 SupplierShell
+  login, register, terms
+src/components/         业务组件（车壳、消息、商品库抽屉）
+src/components/ui/      基础组件（button / card / input / dialog / toast …）
+src/lib/                api 客户端、SSE 订阅、常量与设计令牌
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 检查命令
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npx tsc --noEmit    # 类型检查
+npm run lint        # ESLint
+npm run build       # 生产构建
+```

@@ -9,13 +9,11 @@
 ## 0. 准备工作
 
 1. 注册账号（都用 GitHub 登录最方便）：[Vercel](https://vercel.com)、[Render](https://render.com)、[Supabase](https://supabase.com)。
-2. 把最新代码推到 GitHub 的 `main` 分支。当前本地仓库处于 **detached HEAD** 状态，先切回分支再提交：
+2. 把最新代码推到 GitHub 的 `main` 分支（Render 与 Vercel 都是从仓库拉取部署的）：
 
 ```bash
-cd Chain-chat-agent
-git checkout main
-git add -A
-git commit -m "支持公开部署：上传改存数据库、商家密码可配置、Render 配置"
+git switch main          # 若当前在别的分支
+git status               # 确认没有未提交的改动
 git push origin main
 ```
 

@@ -30,3 +30,8 @@ backend/app/ml_models/
 **/.DS_Store
 # 本地环境变量备份
 backend/.env.bak-*
+
+# Local review artifacts
+backend/package-lock.json
+social-preview.png
+.env.bak-*
