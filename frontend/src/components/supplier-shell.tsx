@@ -18,11 +18,20 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
   const [sessionsError, setSessionsError] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
 
-  const token = getSupplierToken();
-  const loggedIn = Boolean(token);
+  // 登录态只能在挂载后读取：服务端渲染时没有 localStorage，若在 render 期间读取，
+  // 服务端(false)/浏览器(true) 渲染出的结构不一致，React 会整棵树重新生成并报 hydration 错误。
+  const [token, setToken] = useState<string | null>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
 
-  // 路由变化时收起所有浮层。
-  useEffect(() => { setMenuOpen(false); setSessionsOpen(false); setLogoutOpen(false); }, [pathname]);
+  // 路由变化时收起所有浮层，并同步重读登录态（登录与退出都伴随跳转，靠 pathname 触发即可）。
+  useEffect(() => {
+    setMenuOpen(false);
+    setSessionsOpen(false);
+    setLogoutOpen(false);
+    const next = getSupplierToken();
+    setToken(next);
+    setLoggedIn(Boolean(next));
+  }, [pathname]);
 
   // 登录身份（token）变化时清空缓存的会话，避免退出换号后仍显示上一手机号的洽谈。
   useEffect(() => { setSessions(null); setSessionsError(""); }, [token]);
