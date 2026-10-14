@@ -9,7 +9,9 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     plan: free
-    healthCheckPath: /docs
+    # 健康检查用就绪探针：它会真的探一次数据库。
+    # 原来指向 /docs，数据库断了平台也认为服务健康，既不重启也不告警。
+    healthCheckPath: /api/health/ready
     envVars:
       # 前端部署后的网址，例如 https://your-app.vercel.app（用于 CORS，必填）
       - key: FRONTEND_ORIGIN
@@ -46,3 +48,6 @@ services:
       # 接入短信服务后改为 false，并把 ENVIRONMENT 切到 prod。
       - key: DEMO_MODE
         value: "true"
+      # 日志格式：auto（prod 输出 JSON，dev 输出可读格式）/ json / text
+      - key: LOG_FORMAT
+        value: auto

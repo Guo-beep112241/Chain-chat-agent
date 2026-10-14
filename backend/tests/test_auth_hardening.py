@@ -219,3 +219,30 @@ def test_successful_login_does_not_consume_attempt_budget(monkeypatch):
     # 之后仍能连续成功 6 次（若成功也计数，第 4 次就会 429）
     for _ in range(6):
         assert client.post("/api/auth/merchant/login", json=good).status_code == 200
+
+
+def test_request_id_is_returned_and_logged(monkeypatch):
+    """每个响应都带 X-Request-ID；客户端传入时原样沿用，便于串联前后端排查。"""
+    client = make_client(monkeypatch)
+    generated = client.get("/api/health")
+    assert generated.status_code == 200
+    assert generated.headers.get("X-Request-ID"), "响应应带上请求 ID"
+
+    echoed = client.get("/api/health", headers={"X-Request-ID": "trace-me-1234"})
+    assert echoed.headers["X-Request-ID"] == "trace-me-1234"
+
+
+def test_readiness_probe_reports_dependencies(monkeypatch):
+    """就绪探针要真的探数据库，而不是恒返回 ok。"""
+    client = make_client(monkeypatch)
+    live = client.get("/api/health/live")
+    assert live.status_code == 200 and live.json()["status"] == "alive"
+
+    ready = client.get("/api/health/ready")
+    assert ready.status_code == 200
+    body = ready.json()
+    assert body["ready"] is True
+    assert body["checks"]["database"] == "ok"
+    # 关键依赖是否配置要能一眼看出来
+    assert "llm_configured" in body["checks"]
+    assert "ocr_configured" in body["checks"]

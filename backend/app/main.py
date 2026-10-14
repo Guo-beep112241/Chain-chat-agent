@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
+from app.logging_config import RequestTimer, new_request_id, request_id_var, setup_logging
 from app.ratelimit import clear_failures, client_ip, enforce, guard, record_failure
 from app.startup_checks import validate_settings
 from app.uploads import ALLOWED_TYPES, MAX_UPLOAD_BYTES, detect_file_type, normalize_suffix, read_limited, sanitize_filename
@@ -41,6 +42,11 @@ UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
 async def lifespan(_: FastAPI):
     # 配置自检放在最前面：生产环境配错时直接拒绝启动，而不是带病运行。
     validate_settings(settings)
+    json_logs = settings.log_format == "json" or (
+        settings.log_format == "auto" and settings.environment.strip().lower() in {"prod", "production"}
+    )
+    setup_logging(json_output=json_logs)
+    logger.info("服务启动", extra={"environment": settings.environment, "demo_mode": settings.demo_mode})
     Base.metadata.create_all(bind=engine)
     _patch_sqlite_columns(engine)
     _drop_products_name_unique_index(engine)
@@ -214,9 +220,73 @@ def evaluate_offer(rule: ProcurementRule, offer: SupplierOfferIn) -> tuple:
     )
 
 
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """给每个请求分配 request_id，并记录一条访问日志。
+
+    request_id 会回写到响应头 X-Request-ID：前端报错时用户可以直接提供它，
+    我们在日志里就能定位到那一次请求。
+    """
+    request_id = request.headers.get("X-Request-ID") or new_request_id()
+    token = request_id_var.set(request_id)
+    timer = RequestTimer()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    except Exception:
+        logger.exception("请求处理异常", extra={"method": request.method, "path": request.url.path})
+        raise
+    finally:
+        # 日志写在恢复上下文之前，这样 request_id 一定还在作用域内。
+        logger.info(
+            "请求完成",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status": status_code,
+                "elapsed_ms": timer.elapsed_ms,
+            },
+        )
+        request_id_var.reset(token)
+
+
 @app.get("/api/health")
 def health() -> dict:
+    """存活探针：只表示进程还在，不检查依赖（供负载均衡高频调用）。"""
     return {"status": "ok", "time": datetime.utcnow().isoformat(), "llm_configured": bool(settings.deepseek_api_key)}
+
+
+@app.get("/api/health/live")
+def health_live() -> dict:
+    return {"status": "alive"}
+
+
+@app.get("/api/health/ready")
+def health_ready(db: Session = Depends(get_db)) -> dict:
+    """就绪探针：真的探一次数据库，并报告关键依赖是否配置。
+
+    原来的 /api/health 恒返回 ok，数据库断了平台也认为服务健康，
+    既不会重启也不会告警。
+    """
+    checks: dict[str, object] = {}
+    ready = True
+    try:
+        db.execute(select(1))
+        checks["database"] = "ok"
+    except Exception as exc:  # noqa: BLE001 - 探针需要把任何异常都变成「未就绪」
+        ready = False
+        checks["database"] = f"error: {type(exc).__name__}"
+
+    checks["llm_configured"] = bool(settings.deepseek_api_key)
+    checks["ocr_configured"] = bool(settings.baidu_api_key and settings.baidu_secret_key)
+    checks["demo_mode"] = settings.demo_mode
+    checks["environment"] = settings.environment
+    if not ready:
+        raise HTTPException(status_code=503, detail={"ready": False, "checks": checks})
+    return {"ready": True, "checks": checks}
 
 
 @app.post("/api/auth/supplier/request-code", response_model=SupplierCodeOut)

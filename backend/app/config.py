@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     baidu_api_key: str | None = None
     baidu_secret_key: str | None = None
+    # 日志格式：auto（prod 用 JSON，dev 用可读格式）/ json / text
+    log_format: str = "auto"
     # 登录令牌有效期（天）。0 表示永不过期（不建议，仅用于本地调试）。
     # 之前令牌是永久有效的静态串，泄露一次等于永久可登录。
     token_ttl_days: int = 30
