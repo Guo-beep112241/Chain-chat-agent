@@ -22,6 +22,7 @@ import {
   Inbox,
   Info,
   MessageSquare,
+  MessagesSquare,
   Pause,
   RefreshCw,
   RotateCcw,
@@ -32,6 +33,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChatMessageList } from "@/components/chat-message";
+import { Dialog } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getNegotiation,
@@ -95,9 +98,12 @@ export default function NegotiatePage() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+  const [handoffConfirmOpen, setHandoffConfirmOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<SessionFilter>("all");
   const [sort, setSort] = useState<SessionSort>("recent");
+  const toast = useToast();
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(MESSAGE_PAGE_SIZE);
   const messageViewportRef = useRef<HTMLDivElement>(null);
@@ -249,6 +255,8 @@ export default function NegotiatePage() {
     if (!active) return;
     try {
       replaceSession((await handoffNegotiation(active.id)) as Negotiation);
+      setHandoffConfirmOpen(false);
+      toast.push("success", "已接管会话，AI 自动回复已停止");
     } catch (e) {
       setError(e instanceof Error ? e.message : "接管失败");
     }
@@ -298,6 +306,7 @@ export default function NegotiatePage() {
     }
   }
   function selectSession(id: number) {
+    setMobileListOpen(false);
     setSelectedId(id);
     window.history.replaceState(null, "", `/negotiate?id=${id}&view=${view}`);
   }
@@ -369,6 +378,84 @@ export default function NegotiatePage() {
   const lastSupplierMessage = [...active.messages]
     .reverse()
     .find((message) => message.sender === "supplier");
+  // 会话列表内容在桌面侧栏与移动端弹层复用，避免两处各写一份。
+  const sessionPanel = (
+    <>
+            <div className="space-y-3 border-b border-[var(--line)] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-bold">洽谈会话</div>
+                <button
+                  type="button"
+                  onClick={() => setSort((current) => (current === "recent" ? "score" : "recent"))}
+                  className="rounded-[var(--radius-chip)] border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
+                >
+                  {sort === "recent" ? "最近活跃" : "评分最高"}
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索供应商、商品或地区"
+                  aria-label="搜索洽谈会话"
+                  className="h-8 w-full rounded-[var(--radius-chip)] border border-[var(--line)] bg-[var(--surface)] pl-8 pr-2 text-xs outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {SESSION_FILTERS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setFilter(item.key)}
+                    className={cn(
+                      "tnum rounded-[var(--radius-chip)] px-2 py-1 text-[11px] font-semibold transition",
+                      filter === item.key
+                        ? "bg-[var(--ink)] text-white"
+                        : "text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]",
+                    )}
+                  >
+                    {item.label} {filterCounts[item.key]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="thin-scrollbar min-h-0 flex-1 divide-y divide-[var(--line)] overflow-y-auto">
+              {visibleSessions.length ? visibleSessions.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => selectSession(item.id)}
+                  className={cn(
+                    "w-full p-4 text-left transition hover:bg-[var(--paper)]",
+                    item.id === active.id &&
+                      "border-l-2 border-[var(--accent)] bg-[var(--accent-faint)]/45",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-semibold">
+                      {item.supplier.company_name}
+                    </span>
+                    <span className="tnum text-xs font-bold text-[var(--accent-strong)]">
+                      {item.score}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 truncate text-xs text-[var(--muted)]">
+                    {item.product.name}
+                  </div>
+                  <div className="mt-2 text-[11px] text-[var(--muted)]">
+                    {statusText[item.status] ?? item.status}
+                  </div>
+                </button>
+              )) : (
+                <div className="px-4 py-10 text-center text-xs text-[var(--muted)]">
+                  <Inbox className="mx-auto mb-2 size-6" />
+                  {sessions.length ? "没有符合条件的会话" : "暂无洽谈会话"}
+                </div>
+              )}
+            </div>
+    </>
+  );
+
   return (
     <div className="animate-rise xl:flex xl:h-[calc(100dvh-8rem)] xl:min-h-0 xl:flex-col">
       <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -451,7 +538,7 @@ export default function NegotiatePage() {
                 AI 仍在继续回复；只有点击接管后才会切换为人工沟通。
               </p>
             </div>
-            <Button variant="accent" onClick={() => void takeOver()}>
+            <Button variant="accent" onClick={() => setHandoffConfirmOpen(true)}>
               <Hand className="size-4" />
               现在接管
             </Button>
@@ -459,90 +546,28 @@ export default function NegotiatePage() {
         )}
 
       <div className="grid min-h-[680px] gap-5 lg:grid-cols-[260px_1fr] xl:min-h-0 xl:flex-1 xl:grid-cols-[270px_1fr_300px] xl:overflow-hidden">
-        <Card className="min-h-0 overflow-hidden">
+        <Card className="hidden min-h-0 overflow-hidden lg:flex lg:flex-col">
           <CardContent className="flex h-full min-h-0 flex-col p-0">
-            <div className="space-y-3 border-b border-[var(--line)] p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-bold">洽谈会话</div>
-                <button
-                  type="button"
-                  onClick={() => setSort((current) => (current === "recent" ? "score" : "recent"))}
-                  className="rounded-[var(--radius-chip)] border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
-                >
-                  {sort === "recent" ? "最近活跃" : "评分最高"}
-                </button>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索供应商、商品或地区"
-                  aria-label="搜索洽谈会话"
-                  className="h-8 w-full rounded-[var(--radius-chip)] border border-[var(--line)] bg-[var(--surface)] pl-8 pr-2 text-xs outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
-                />
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {SESSION_FILTERS.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setFilter(item.key)}
-                    className={cn(
-                      "tnum rounded-[var(--radius-chip)] px-2 py-1 text-[11px] font-semibold transition",
-                      filter === item.key
-                        ? "bg-[var(--ink)] text-white"
-                        : "text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]",
-                    )}
-                  >
-                    {item.label} {filterCounts[item.key]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="thin-scrollbar min-h-0 flex-1 divide-y divide-[var(--line)] overflow-y-auto">
-              {visibleSessions.length ? visibleSessions.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => selectSession(item.id)}
-                  className={cn(
-                    "w-full p-4 text-left transition hover:bg-[var(--paper)]",
-                    item.id === active.id &&
-                      "border-l-2 border-[var(--accent)] bg-[var(--accent-faint)]/45",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-semibold">
-                      {item.supplier.company_name}
-                    </span>
-                    <span className="tnum text-xs font-bold text-[var(--accent-strong)]">
-                      {item.score}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 truncate text-xs text-[var(--muted)]">
-                    {item.product.name}
-                  </div>
-                  <div className="mt-2 text-[11px] text-[var(--muted)]">
-                    {statusText[item.status] ?? item.status}
-                  </div>
-                </button>
-              )) : (
-                <div className="px-4 py-10 text-center text-xs text-[var(--muted)]">
-                  <Inbox className="mx-auto mb-2 size-6" />
-                  {sessions.length ? "没有符合条件的会话" : "暂无洽谈会话"}
-                </div>
-              )}
-            </div>
+            {sessionPanel}
           </CardContent>
         </Card>
 
         <Card className="flex min-h-[680px] flex-col overflow-hidden xl:min-h-0">
-          <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-3">
-            <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3 sm:px-5">
+            <Button
+              variant="outline"
+              size="sm"
+              className="lg:hidden"
+              onClick={() => setMobileListOpen(true)}
+            >
+              <MessagesSquare className="size-3.5" />
+              切换会话
+            </Button>
+            <div className="hidden items-center gap-2 text-xs text-[var(--muted)] lg:flex">
               <ShieldCheck className="size-4 text-[var(--success)]" />
               每个会话单独保存消息和状态
             </div>
-            <span className="text-xs text-[var(--muted)]">
+            <span className="tnum text-xs text-[var(--muted)]">
               {active.messages.length} 条消息
             </span>
           </div>
@@ -811,7 +836,7 @@ export default function NegotiatePage() {
               variant="accent"
               size="lg"
               className="w-full"
-              onClick={() => void takeOver()}
+              onClick={() => setHandoffConfirmOpen(true)}
             >
               <Pause className="size-4" />
               停止 AI 并接管
@@ -830,6 +855,42 @@ export default function NegotiatePage() {
           )}
         </div>
       </div>
+
+      {/* 移动端会话列表：窄屏下左侧列表会挤在对话上方，改为弹层按需打开 */}
+      <Dialog
+        open={mobileListOpen}
+        onClose={() => setMobileListOpen(false)}
+        title="洽谈会话"
+        description={`共 ${sessions.length} 个供应商，点击切换`}
+        size="md"
+      >
+        <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-[var(--radius-control)] border border-[var(--line)]">
+          {sessionPanel}
+        </div>
+      </Dialog>
+
+      {/* 接管是不可逆操作（会停止 AI 自动回复），加一步确认 */}
+      <Dialog
+        open={handoffConfirmOpen}
+        onClose={() => setHandoffConfirmOpen(false)}
+        title="确认接管这个会话？"
+        description="接管后 AI 将停止自动回复，后续由你人工沟通。"
+        footer={
+          <>
+            <Button variant="outline" className="flex-1" onClick={() => setHandoffConfirmOpen(false)}>取消</Button>
+            <Button variant="accent" className="flex-1" onClick={() => void takeOver()}>确认接管</Button>
+          </>
+        }
+      >
+        {active && (
+          <div className="rounded-[var(--radius-control)] bg-[var(--paper)] p-3 text-xs leading-6 text-[var(--muted)]">
+            <div className="text-sm font-semibold text-[var(--ink)]">{active.supplier.company_name}</div>
+            <div className="tnum mt-1">
+              {active.product.name} · 报价 ¥{active.quoted_price} · 起订量 {active.moq} 件 · 综合评分 {active.score}
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }
