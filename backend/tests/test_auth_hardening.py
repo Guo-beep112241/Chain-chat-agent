@@ -42,6 +42,13 @@ def make_client(monkeypatch) -> TestClient:
     return TestClient(app)
 
 
+def merchant_headers(client) -> dict:
+    """商家登录并返回鉴权头（本文件内自用，与其它测试文件各自独立）。"""
+    login = client.post("/api/auth/merchant/login", json={"account": "admin", "password": "链谈Agent123"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
 def test_admin_token_backdoor_is_disabled_by_default(monkeypatch):
     """config 里的 admin_token 默认必须是空串，且空串不会匹配任何请求。"""
     # 断言的是模型默认值本身：本机 .env 可能仍写着旧令牌，那属于个人配置而非代码默认值。
@@ -246,3 +253,23 @@ def test_readiness_probe_reports_dependencies(monkeypatch):
     # 关键依赖是否配置要能一眼看出来
     assert "llm_configured" in body["checks"]
     assert "ocr_configured" in body["checks"]
+
+
+def test_sse_stream_requires_auth(monkeypatch):
+    client = make_client(monkeypatch)
+    assert client.get("/api/negotiations/stream").status_code == 401
+
+
+# 说明：这里刻意不做「读取 SSE 流内容」的用例。
+# 端点用的是无限 async 生成器，而 TestClient 是同步流式客户端，
+# 两者通过 anyio portal 交互时会互相等待（实测 60 秒不返回、CI 会直接挂住）。
+# SSE 的实际输出改用手工验证，命令如下（需带商家 token）：
+#   curl -sN --max-time 4 http://localhost:8000/api/negotiations/stream \
+#        -H "Authorization: Bearer <token>"
+# 预期先看到 "event: change" 与 data 行，随后每 2 秒一次 ": keep-alive"。
+# 鉴权部分仍然用自动化用例覆盖（见上面/下面的 401 断言）。
+
+
+def test_negotiation_status_stream_requires_auth(monkeypatch):
+    client = make_client(monkeypatch)
+    assert client.get("/api/negotiations/1/stream").status_code == 401
