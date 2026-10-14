@@ -116,7 +116,7 @@ def login_headers(client: TestClient) -> dict:
 def submit_offer(client: TestClient, headers: dict) -> dict:
     uploaded = client.post(
         "/api/uploads/qualification-files",
-        files={"file": ("资质.png", b"fake-image-bytes", "image/png")},
+        files={"file": ("资质.png", b"\x89PNG\r\n\x1a\n" + b"fake-image-bytes", "image/png")},
         headers=headers,
     ).json()
     # 资质齐全过硬规则；非优先地区 + 低配合度 + 接近硬上限的报价，让初始评分落在「AI 拉锯」区间。
@@ -274,3 +274,10 @@ def test_dashboard_summary_supports_time_range(monkeypatch):
     sample = recent["items"][0]
     assert sample["created_at"]
     assert sample["last_activity_at"]
+
+# 真实文件头：上传接口现在按文件头判断类型，测试数据必须带正确的魔数，
+# 否则会被 415 拦下（这正是加固后的预期行为）。
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
+JPG_BYTES = b"\xff\xd8\xff\xe0" + b"fake-jpg-body"
+PDF_BYTES = b"%PDF-1.4 fake-pdf-body"
+

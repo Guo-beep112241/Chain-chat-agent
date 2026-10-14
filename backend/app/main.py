@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.ratelimit import clear_failures, client_ip, enforce, guard, record_failure
 from app.startup_checks import validate_settings
+from app.uploads import ALLOWED_TYPES, MAX_UPLOAD_BYTES, detect_file_type, normalize_suffix, read_limited, sanitize_filename
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
 from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
@@ -34,8 +35,6 @@ POLITE_CLOSE_REPLY = "感谢您提供资料。当前供货条件与我们的采�
 
 # 资质文件存储：字节直接入库（见 models.QualificationFile.data），此路径保留仅供测试 monkeypatch 与本地旧数据迁移参考。
 UPLOAD_DIR = Path(__file__).resolve().parents[1] / "uploads"
-ALLOWED_UPLOAD_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -418,18 +417,28 @@ async def upload_qualification_file(
     db: Session = Depends(get_db),
     _auth: SupplierAuth = Depends(require_supplier),
 ):
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_UPLOAD_SUFFIXES:
+    # 1) 先看后缀是否符合预期（快速失败），但真正采信的是下面的文件头。
+    if not normalize_suffix(file.filename or ""):
         raise HTTPException(status_code=415, detail="仅支持 jpg / jpeg / png / webp 图片或 pdf 文件")
-    content = await file.read()
+
+    # 2) 分块读取并在读取过程中判大小：超限立即中止，不把整个文件读进内存。
+    try:
+        content = await read_limited(file, MAX_UPLOAD_BYTES)
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     if not content:
         raise HTTPException(status_code=422, detail="文件内容为空")
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="单个文件不能超过 5MB")
+
+    # 3) 按文件头确认真实类型。改名的可执行文件、伪装成 png 的 html 都会在这里被拦下。
+    detected = detect_file_type(content[:16])
+    if detected is None:
+        raise HTTPException(status_code=415, detail="文件内容不是有效的图片或 PDF，请重新导出后再上传")
+
     file_id = secrets.token_hex(16)
+    suffix, content_type = ALLOWED_TYPES[detected]
     stored_name = f"{file_id}{suffix}"
-    original_name = file.filename or stored_name
-    content_type = file.content_type or ""
+    # 4) 文件名清洗后再入库：去掉控制字符与路径分隔符并截断，避免响应头注入与超长报错。
+    original_name = sanitize_filename(file.filename or stored_name)
 
     # 资质自动核验：营业执照 OCR 识别公司名并与填写企业名比对；失败/未配置时降级为人工核验。
     ocr_status, ocr_company, ocr_detail = "not_checked", "", ""
@@ -438,7 +447,7 @@ async def upload_qualification_file(
         ocr_status, ocr_detail = "unavailable", "识别服务未配置，转人工核验"
     else:
         try:
-            result = await read_business_license(content, is_pdf=(suffix == ".pdf"))
+            result = await read_business_license(content, is_pdf=(detected == "pdf"))
         except (httpx.HTTPError, KeyError, TypeError, ValueError):
             ocr_status, ocr_detail = "unavailable", "识别服务调用失败，转人工核验"
         else:
@@ -474,13 +483,20 @@ def download_qualification_file(file_id: str, db: Session = Depends(get_db), mer
     if not row.data:
         raise HTTPException(status_code=404, detail="文件已丢失，请联系供应商重新上传")
     # 中文等非 latin-1 文件名会导致响应头编码失败，用 RFC 5987 的 filename* 安全编码。
-    clean_name = (row.original_name or "file").replace('"', "")
+    # 再次清洗：库里可能存在本次改动之前入库的、未清洗过的历史文件名。
+    clean_name = sanitize_filename(row.original_name or "file")
     fallback = clean_name.encode("ascii", "ignore").decode("ascii") or "file"
-    disposition = f'inline; filename="{fallback}"; filename*=UTF-8\'\'{quote(clean_name)}'
+    # 一律用 attachment 而非 inline：inline 会让浏览器在同源下直接渲染上传内容，
+    # 一个伪装成图片的 HTML/SVG 就能拿到本页面的脚本执行环境。
+    disposition = f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quote(clean_name)}'
     return Response(
         content=row.data,
         media_type=row.content_type or "application/octet-stream",
-        headers={"Content-Disposition": disposition},
+        headers={
+            "Content-Disposition": disposition,
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
     )
 
 

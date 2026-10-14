@@ -75,7 +75,7 @@ def test_upload_claim_verify_flow(monkeypatch):
 
     uploaded = client.post(
         "/api/uploads/qualification-files",
-        files={"file": ("营业执照.png", b"\x89PNG fake-bytes", "image/png")},
+        files={"file": ("营业执照.png", PNG_BYTES, "image/png")},
         data={"company_name": "鼎盛制造厂"},
         headers=headers,
     ).json()
@@ -103,7 +103,7 @@ def test_upload_claim_verify_flow(monkeypatch):
 
     served = client.get(f"/api/uploads/{uploaded['id']}", headers=merchant_headers(client))
     assert served.status_code == 200
-    assert served.content == b"\x89PNG fake-bytes"
+    assert served.content == PNG_BYTES
 
     toggled = client.post(f"/api/qualification-files/{uploaded['id']}/verify", headers=merchant_headers(client)).json()
     assert toggled["verified"] is True
@@ -122,7 +122,7 @@ def test_ocr_mismatch_and_failure_paths(monkeypatch):
     monkeypatch.setattr(main_module, "read_business_license", fake_mismatch)
     mismatched = client.post(
         "/api/uploads/qualification-files",
-        files={"file": ("执照2.png", b"img-2", "image/png")},
+        files={"file": ("执照2.png", b"\x89PNG\r\n\x1a\n" + b"img-2", "image/png")},
         data={"company_name": "鼎盛制造厂"},
         headers=headers,
     ).json()
@@ -135,7 +135,7 @@ def test_ocr_mismatch_and_failure_paths(monkeypatch):
     monkeypatch.setattr(main_module, "read_business_license", failing_ocr)
     failed = client.post(
         "/api/uploads/qualification-files",
-        files={"file": ("执照3.png", b"img-3", "image/png")},
+        files={"file": ("执照3.png", b"\x89PNG\r\n\x1a\n" + b"img-3", "image/png")},
         data={"company_name": "鼎盛制造厂"},
         headers=headers,
     ).json()
@@ -147,7 +147,7 @@ def test_ocr_mismatch_and_failure_paths(monkeypatch):
     monkeypatch.setattr(main_module, "read_business_license", not_a_license)
     other = client.post(
         "/api/uploads/qualification-files",
-        files={"file": ("质检报告.pdf", b"%PDF-fake", "application/pdf")},
+        files={"file": ("质检报告.pdf", PDF_BYTES, "application/pdf")},
         data={"company_name": "鼎盛制造厂"},
         headers=headers,
     ).json()
@@ -169,7 +169,7 @@ def test_list_endpoints_do_not_load_file_bytes(monkeypatch):
 
     uploaded = client.post(
         "/api/uploads/qualification-files",
-        files={"file": ("营业执照.png", b"\x89PNG fake-bytes", "image/png")},
+        files={"file": ("营业执照.png", PNG_BYTES, "image/png")},
         data={"company_name": "鼎盛制造厂"},
         headers=headers,
     ).json()
@@ -203,4 +203,119 @@ def test_list_endpoints_do_not_load_file_bytes(monkeypatch):
     # 但真正下载文件时仍必须能取到内容。
     served = client.get(f"/api/uploads/{uploaded['id']}", headers=merchant_headers(client))
     assert served.status_code == 200
-    assert served.content == b"\x89PNG fake-bytes"
+    assert served.content == PNG_BYTES
+
+# 真实文件头：上传接口现在按文件头判断类型，测试数据必须带正确的魔数，
+# 否则会被 415 拦下（这正是加固后的预期行为）。
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
+JPG_BYTES = b"\xff\xd8\xff\xe0" + b"fake-jpg-body"
+PDF_BYTES = b"%PDF-1.4 fake-pdf-body"
+
+
+
+def test_upload_rejects_content_that_does_not_match_extension(monkeypatch):
+    """按文件头判类型：改名的可执行文件/伪装成图片的文本都过不去。"""
+    client = make_client(monkeypatch, Path(tempfile.mkdtemp(prefix="liantan-test-uploads-")))
+    headers = login_headers(client)
+
+    disguised = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("营业执照.png", b"<html><script>alert(1)</script>", "image/png")},
+        headers=headers,
+    )
+    assert disguised.status_code == 415
+
+    # 后缀不在白名单，直接挡在文件读取之前
+    wrong_suffix = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("说明.txt", PNG_BYTES, "text/plain")},
+        headers=headers,
+    )
+    assert wrong_suffix.status_code == 415
+
+    # JPEG 头 + .png 后缀：类型识别以文件头为准，会按 jpeg 归一化入库
+    jpeg_with_png_name = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("图片.png", JPG_BYTES, "image/png")},
+        headers=headers,
+    )
+    assert jpeg_with_png_name.status_code == 200
+    assert jpeg_with_png_name.json()["content_type"] == "image/jpeg"
+
+
+def test_upload_rejects_oversized_file(monkeypatch):
+    """超过 5MB 直接 413（分块读取时就中止，不是读完再判断）。"""
+    client = make_client(monkeypatch, Path(tempfile.mkdtemp(prefix="liantan-test-uploads-")))
+    headers = login_headers(client)
+    oversized = b"\x89PNG\r\n\x1a\n" + b"x" * (5 * 1024 * 1024 + 1024)
+    response = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("大图.png", oversized, "image/png")},
+        headers=headers,
+    )
+    assert response.status_code == 413
+
+
+def test_sanitize_filename_strips_control_chars_and_paths():
+    """直接单测清洗函数：真实攻击面是原始 HTTP 请求里的 CR/LF 与路径。
+
+    注意 httpx 会把文件名里的 CR/LF 百分号编码后再发，
+    所以端到端用例看到的是 %0D%0A 字面量而不是控制字符——
+    真正的注入防护要靠这个函数本身，因此单独测它。
+    """
+    from app.uploads import sanitize_filename
+
+    assert sanitize_filename("../../etc/passwd.png") == "passwd.png"
+    assert sanitize_filename('营业"执照.png') == "营业执照.png"
+    assert "\r" not in sanitize_filename("营业\r\n执照.png")
+    assert "\n" not in sanitize_filename("营业\r\n执照.png")
+    assert "\x00" not in sanitize_filename("a\x00b.png")
+    # 超长文件名要截断，且保留后缀（库字段是 String(255)）
+    long_name = "甲" * 400 + ".png"
+    cleaned = sanitize_filename(long_name)
+    assert len(cleaned) <= 200
+    assert cleaned.endswith(".png")
+    assert sanitize_filename("") == "file"
+
+
+def test_upload_stores_sanitized_filename(monkeypatch):
+    """端到端：入库的文件名不含路径分隔符。"""
+    client = make_client(monkeypatch, Path(tempfile.mkdtemp(prefix="liantan-test-uploads-")))
+    headers = login_headers(client)
+    uploaded = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("../../etc/营业执照.png", PNG_BYTES, "image/png")},
+        headers=headers,
+    ).json()
+    assert "/" not in uploaded["original_name"]
+    assert "\\" not in uploaded["original_name"]
+    assert uploaded["original_name"].endswith(".png")
+
+
+def test_download_forces_attachment_and_blocks_sniffing(monkeypatch):
+    """下载一律 attachment + nosniff + CSP sandbox，避免同源渲染上传内容。"""
+    client = make_client(monkeypatch, Path(tempfile.mkdtemp(prefix="liantan-test-uploads-")))
+    headers = login_headers(client)
+    uploaded = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("营业执照.png", PNG_BYTES, "image/png")},
+        data={"company_name": "鼎盛制造厂"},
+        headers=headers,
+    ).json()
+    # 未认领的文件对商家不可见（这是预期的隔离行为），
+    # 因此先通过提交方案把它挂到供应商名下再下载。
+    client.post(
+        "/api/suppliers/evaluate",
+        json={
+            "product_id": 1, "company_name": "鼎盛制造厂", "contact_name": "张三", "phone": PHONE,
+            "region": "河南郑州", "quoted_price": 24.4, "moq": 150, "lead_days": 10, "payment_days": 30,
+            "qualifications": ["营业执照"], "qualification_file_ids": [uploaded["id"]], "cooperation_rating": 60,
+        },
+        headers=headers,
+    )
+
+    served = client.get(f"/api/uploads/{uploaded['id']}", headers=merchant_headers(client))
+    assert served.status_code == 200
+    assert served.headers["content-disposition"].startswith("attachment;")
+    assert served.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in served.headers["content-security-policy"]
