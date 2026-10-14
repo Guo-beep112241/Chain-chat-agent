@@ -41,6 +41,7 @@ import {
   toggleQualificationVerified,
   type Negotiation,
 } from "@/lib/api";
+import { subscribeNegotiations } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
 const statusText: Record<string, string> = {
@@ -132,6 +133,9 @@ export default function NegotiatePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 实时通道：任一会话出现新消息或状态变化即刷新当前视图，供应商在另一端发言时商家无需手动点「刷新」。
+  useEffect(() => subscribeNegotiations(() => { void load(); }), [load]);
 
   function replaceSession(updated: Negotiation) {
     setSessions((current) =>

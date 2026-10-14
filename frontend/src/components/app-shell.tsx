@@ -8,6 +8,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clearMerchantAuth, getMerchantProfile, getMerchantToken, getNegotiations, merchantLogout, updateMerchantProfile, type MerchantProfile, type Negotiation } from "@/lib/api";
+import { subscribeNegotiations } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -60,17 +61,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  // 铃铛 = 待接管提醒：轮询达到转人工条件、等待商家接管的会话。
+  // 铃铛 = 待接管提醒：达到人工接管标准、AI 仍在线的会话（后端不再写入 manual_required 状态）。
   const loadPending = useCallback(async () => {
     try {
       const items = await getNegotiations();
-      setPending(items.filter(item => item.status === "manual_required"));
+      setPending(items.filter(item => item.classification === "qualified" && item.status === "ai_active"));
     } catch { /* 后端未启动或令牌未配置时静默 */ }
   }, []);
   useEffect(() => {
     void loadPending();
     const timer = setInterval(() => void loadPending(), 30_000);
-    return () => clearInterval(timer);
+    const unsubscribe = subscribeNegotiations(() => { void loadPending(); });
+    return () => { clearInterval(timer); unsubscribe(); };
   }, [loadPending]);
 
   // 采购方已登录（存在商家 token）时拉取个人资料；网页调试无 token，保持死按钮现状。

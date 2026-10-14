@@ -9,7 +9,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
@@ -635,6 +635,32 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
 @app.get("/api/negotiations", response_model=list[NegotiationOut])
 def list_negotiations(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     return db.scalars(select(Negotiation).options(selectinload(Negotiation.messages), selectinload(Negotiation.supplier).selectinload(Supplier.qualification_files), selectinload(Negotiation.product)).order_by(Negotiation.updated_at.desc())).all()
+
+
+@app.get("/api/negotiations/stream")
+async def stream_negotiations(_admin: str = Depends(require_admin)):
+    """商家侧全局实时通道：任一会话出现新消息、状态 / 评分 / 分类变化即推送一次事件。
+
+    签名用「会话数 + 消息总数」即可覆盖所有会改变界面的操作：新供应商提交会新增会话，
+    供应商发言、AI 回复、接管 / 恢复 / 人工回复都会新增消息，因此任何值得刷新的事件都会
+    使消息总数增长。前端收到 event: change 后自行重新拉取，不依赖具体字段。
+    """
+
+    async def events():
+        last_signature = None
+        for _ in range(900):  # 约 30 分钟，之后由前端自动重连
+            with SessionLocal() as db:
+                negotiations = db.scalar(select(func.count(Negotiation.id))) or 0
+                messages = db.scalar(select(func.count(Message.id))) or 0
+                signature = (negotiations, messages)
+            if signature != last_signature:
+                yield f"event: change\ndata: {json.dumps({'negotiations': signature[0], 'messages': signature[1]}, ensure_ascii=False)}\n\n"
+                last_signature = signature
+            else:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/negotiations/{negotiation_id}", response_model=NegotiationOut)
