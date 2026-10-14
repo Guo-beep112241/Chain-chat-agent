@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     baidu_api_key: str | None = None
     baidu_secret_key: str | None = None
+    # 供应商重复提交的幂等窗口（秒）。同一供应商对同一商品在窗口内提交
+    # 完全相同的条件时复用已有会话，避免双击/网络重试产生重复档案。
+    # 设为 0 关闭该行为。
+    evaluate_dedupe_seconds: int = 120
     # 日志格式：auto（prod 用 JSON，dev 用可读格式）/ json / text
     log_format: str = "auto"
     # 登录令牌有效期（天）。0 表示永不过期（不建议，仅用于本地调试）。

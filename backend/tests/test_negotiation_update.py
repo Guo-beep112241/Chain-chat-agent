@@ -281,3 +281,61 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
 JPG_BYTES = b"\xff\xd8\xff\xe0" + b"fake-jpg-body"
 PDF_BYTES = b"%PDF-1.4 fake-pdf-body"
 
+
+
+def test_evaluate_is_idempotent_within_window(monkeypatch):
+    """双击提交/网络重试不应产生重复的供应商档案与会话。"""
+    turn = NegotiationTurn(reply="收到，我们继续沟通。")
+    client = make_client(monkeypatch, turn)
+    headers = login_headers(client)
+
+    first = submit_offer(client, headers)
+    second = submit_offer(client, headers)
+
+    # 同一份方案重复提交：命中幂等窗口，返回同一个会话
+    assert first["negotiation_id"] == second["negotiation_id"]
+
+    all_time = client.get("/api/negotiations", headers=merchant_headers(client)).json()
+    assert len(all_time) == 1, f"不应产生重复会话，实际 {len(all_time)} 条"
+
+
+def test_different_terms_still_create_new_session(monkeypatch):
+    """条件不同就是新方案，不能被幂等逻辑吞掉。"""
+    turn = NegotiationTurn(reply="收到，我们继续沟通。")
+    client = make_client(monkeypatch, turn)
+    headers = login_headers(client)
+    first = submit_offer(client, headers)
+
+    uploaded = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("资质.png", b"\x89PNG\r\n\x1a\n" + b"fake-image-bytes", "image/png")},
+        headers=headers,
+    ).json()
+    changed = client.post(
+        "/api/suppliers/evaluate",
+        json={
+            "product_id": 1, "company_name": "鼎盛制造厂", "contact_name": "张三", "phone": PHONE,
+            "region": "河南郑州", "quoted_price": 20.0, "moq": 150, "lead_days": 10, "payment_days": 30,
+            "qualifications": ["营业执照", "质检报告"], "qualification_file_ids": [uploaded["id"]],
+            "cooperation_rating": 0,
+        },
+        headers=headers,
+    ).json()
+    assert changed["negotiation_id"] != first["negotiation_id"]
+
+
+def test_negotiation_list_supports_pagination_and_filters(monkeypatch):
+    """列表接口有上限，并通过 X-Total-Count 告知总数。"""
+    turn = NegotiationTurn(reply="收到。")
+    client = make_client(monkeypatch, turn)
+    headers = login_headers(client)
+    submit_offer(client, headers)
+
+    response = client.get("/api/negotiations?limit=1", headers=merchant_headers(client))
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert int(response.headers["X-Total-Count"]) >= 1
+
+    filtered = client.get("/api/negotiations?status=closed", headers=merchant_headers(client))
+    assert filtered.status_code == 200
+    assert filtered.json() == []

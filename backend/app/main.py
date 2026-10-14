@@ -835,6 +835,43 @@ def update_rule(product_id: int, payload: RuleUpdate, db: Session = Depends(get_
     return rule
 
 
+def _same_offer(existing: Negotiation, payload: SupplierOfferIn) -> bool:
+    """判断这次提交与已有会话是否为「同一份方案」。
+
+    必须逐项比对：价格/起订量/交期/账期任一不同，都属于新方案，
+    应该正常走评估流程而不是被当成重复提交吞掉。
+    """
+    supplier = existing.supplier
+    if supplier is None:
+        return False
+    if supplier.company_name != payload.company_name:
+        return False
+    if float(existing.quoted_price) != float(payload.quoted_price):
+        return False
+    if int(existing.moq) != int(payload.moq):
+        return False
+    if int(existing.lead_days) != int(payload.lead_days):
+        return False
+    if int(existing.payment_days) != int(payload.payment_days):
+        return False
+    return sorted(supplier.qualifications or []) == sorted(payload.qualifications or [])
+
+
+def claim_qualification_files(db: Session, file_ids: list[str], supplier_id: int) -> int:
+    """把尚未认领的资质文件挂到指定供应商名下，返回认领数量。"""
+    if not file_ids:
+        return 0
+    rows = db.scalars(
+        select(QualificationFile).where(
+            QualificationFile.id.in_(file_ids),
+            QualificationFile.supplier_id.is_(None),
+        )
+    ).all()
+    for row in rows:
+        row.supplier_id = supplier_id
+    return len(rows)
+
+
 @app.post("/api/suppliers/evaluate", response_model=EvaluationOut)
 async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_db), auth: SupplierAuth = Depends(require_supplier)):
     payload.phone = auth.phone  # 身份以登录手机号为准，忽略表单传入的 phone
@@ -845,6 +882,43 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
         raise HTTPException(status_code=422, detail="已勾选资质，请至少上传一份资质文件供人工核验")
     hard, scored, classification, action = evaluate_offer(rule, payload)
     merchant_id = rule.product.merchant_id
+
+    # 幂等：双击提交、网络重试、用户回退后再次提交，都会走到这里。
+    # 若同一供应商对同一商品在窗口内提交了完全相同的条件，复用已有会话，
+    # 只把这次新上传的资质文件补挂上去，不再新建供应商档案与会话。
+    window = settings.evaluate_dedupe_seconds
+    if window > 0:
+        recent = db.scalars(
+            select(Negotiation)
+            .join(Supplier, Negotiation.supplier_id == Supplier.id)
+            .where(
+                Negotiation.merchant_id == merchant_id,
+                Negotiation.product_id == payload.product_id,
+                Supplier.phone == payload.phone,
+                Negotiation.status != "closed",
+                Negotiation.created_at >= datetime.utcnow() - timedelta(seconds=window),
+            )
+            .order_by(Negotiation.id.desc())
+        ).all()
+        for existing in recent:
+            if not _same_offer(existing, payload):
+                continue
+            if claim_qualification_files(db, payload.qualification_file_ids, existing.supplier.id) and existing.supplier is not None:
+                db.commit()
+            logger.info(
+                "重复提交命中幂等窗口，复用已有会话",
+                extra={"negotiation_id": existing.id, "product_id": payload.product_id},
+            )
+            return EvaluationOut(
+                negotiation_id=existing.id,
+                hard_pass=not existing.hard_fail_reasons,
+                hard_fail_reasons=existing.hard_fail_reasons or [],
+                score=existing.score,
+                classification=existing.classification,
+                action=action,
+                score_breakdown=None,
+            )
+
     supplier = Supplier(
         merchant_id=merchant_id,
         company_name=payload.company_name,
@@ -857,12 +931,7 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
     )
     db.add(supplier)
     db.flush()
-    if payload.qualification_file_ids:
-        claimed = db.scalars(
-            select(QualificationFile).where(QualificationFile.id.in_(payload.qualification_file_ids), QualificationFile.supplier_id.is_(None))
-        ).all()
-        for row in claimed:
-            row.supplier_id = supplier.id
+    claim_qualification_files(db, payload.qualification_file_ids, supplier.id)
     # 高分只标记“建议人工接管”；在商家真正点击接管前，AI 仍保持在线。
     # “当前方案淘汰”不等于“会话结束”：未通过底线时仍允许 AI 继续争取合规方案。
     status = "ai_active"
@@ -917,8 +986,44 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
 
 
 @app.get("/api/negotiations", response_model=list[NegotiationOut])
-def list_negotiations(db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
-    return db.scalars(select(Negotiation).where(Negotiation.merchant_id == merchant.id).options(selectinload(Negotiation.messages), selectinload(Negotiation.supplier).selectinload(Supplier.qualification_files), selectinload(Negotiation.product)).order_by(Negotiation.updated_at.desc())).all()
+def list_negotiations(
+    response: Response,
+    limit: int = Query(200, ge=1, le=500, description="本页最多返回多少条"),
+    offset: int = Query(0, ge=0),
+    status: str | None = Query(None, description="按会话状态过滤，如 ai_active"),
+    classification: str | None = Query(None, description="按分类过滤：negotiating / qualified / eliminated"),
+    db: Session = Depends(get_db),
+    merchant: MerchantAccount = Depends(require_merchant),
+):
+    """洽谈会话列表。
+
+    之前是全量返回且每条都内嵌全部消息：单个商家积累到上千条会话时，
+    响应会有数 MB，前端也会卡。现在默认最多返回 200 条，
+    并通过 X-Total-Count 给出该商家在当前过滤条件下的总数，
+    调用方据此实现分页或「只显示最近 N 条」。
+    """
+    conditions = [Negotiation.merchant_id == merchant.id]
+    if status:
+        conditions.append(Negotiation.status == status)
+    if classification:
+        conditions.append(Negotiation.classification == classification)
+
+    total = db.scalar(select(func.count(Negotiation.id)).where(*conditions)) or 0
+    response.headers["X-Total-Count"] = str(total)
+
+    rows = db.scalars(
+        select(Negotiation)
+        .where(*conditions)
+        .options(
+            selectinload(Negotiation.messages),
+            selectinload(Negotiation.supplier).selectinload(Supplier.qualification_files),
+            selectinload(Negotiation.product),
+        )
+        .order_by(Negotiation.updated_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return rows
 
 
 @app.get("/api/negotiations/stream")
