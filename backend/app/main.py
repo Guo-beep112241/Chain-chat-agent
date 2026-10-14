@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
-from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantLoginIn, MerchantPasswordIn, MerchantProfileIn, MerchantProfileOut, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
+from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
 from app.seed import seed_demo_data, seed_merchant_account
 from app.security import authorize_negotiation, check_code, hash_password, issue_code, require_admin, require_buyer, require_supplier, validate_password, verify_password
 from app.services.llm import FALLBACK_REPLY, generate_boundary_recovery_reply, generate_negotiation_reply, generate_negotiation_turn, generate_opening_message
@@ -61,6 +61,10 @@ def _patch_sqlite_columns(engine) -> None:
             ("ml_model", "VARCHAR(32) DEFAULT 'decision_tree'"),
             ("ml_qualify_threshold", "FLOAT DEFAULT 0.5"),
             ("ml_eliminate_threshold", "FLOAT DEFAULT 0.5"),
+        ),
+        "merchant_accounts": (
+            ("account", "VARCHAR(80) DEFAULT ''"),
+            ("phone", "VARCHAR(40) DEFAULT ''"),
         ),
     }
     with engine.begin() as conn:
@@ -211,11 +215,36 @@ def get_merchant_account(db: Session) -> MerchantAccount:
     return account
 
 
-@app.post("/api/auth/merchant/login", response_model=MerchantTokenOut)
-def merchant_login(payload: MerchantLoginIn, db: Session = Depends(get_db)):
+@app.post("/api/auth/merchant/request-code", response_model=MerchantCodeOut)
+def request_merchant_code(payload: MerchantCodeRequest, db: Session = Depends(get_db)):
     account = get_merchant_account(db)
-    if not account.password_hash or not verify_password(payload.password, account.password_hash):
-        raise HTTPException(status_code=401, detail="密码错误")
+    if not account.phone or account.phone != payload.phone.strip():
+        raise HTTPException(status_code=404, detail="该手机号未绑定采购方账号")
+    phone = payload.phone.strip()
+    code = issue_code(phone)
+    # 演示模式：验证码不发送短信，直接返回前端并打印到日志。
+    print(f"[演示验证码] 采购方手机号 {phone} 的登录验证码为：{code}")
+    return MerchantCodeOut(phone=phone, code=code, expires_in=300)
+
+
+@app.post("/api/auth/merchant/login-code", response_model=MerchantTokenOut)
+def merchant_code_login(payload: MerchantCodeLoginIn, db: Session = Depends(get_db)):
+    account = get_merchant_account(db)
+    if not account.phone or account.phone != payload.phone.strip():
+        raise HTTPException(status_code=401, detail="手机号未绑定采购方账号")
+    if not check_code(payload.phone.strip(), payload.code):
+        raise HTTPException(status_code=401, detail="验证码错误或已过期")
+    account.access_token = secrets.token_urlsafe(32)
+    db.commit()
+    db.refresh(account)
+    return {**merchant_profile_out(account), "access_token": account.access_token}
+
+
+@app.post("/api/auth/merchant/login", response_model=MerchantTokenOut)
+def merchant_login(payload: MerchantPasswordLoginIn, db: Session = Depends(get_db)):
+    account = db.scalar(select(MerchantAccount).where(MerchantAccount.account == payload.account.strip()))
+    if account is None or not account.password_hash or not verify_password(payload.password, account.password_hash):
+        raise HTTPException(status_code=401, detail="账号或密码错误")
     account.access_token = secrets.token_urlsafe(32)
     db.commit()
     db.refresh(account)

@@ -231,8 +231,24 @@ class SupplierTokenOut(BaseModel):
     phone: str
 
 
-class MerchantLoginIn(BaseModel):
+class MerchantPasswordLoginIn(BaseModel):
+    account: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=1, max_length=200)
+
+
+class MerchantCodeRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=11, pattern=r"^\d{11}$")
+
+
+class MerchantCodeLoginIn(BaseModel):
+    phone: str = Field(min_length=11, max_length=11, pattern=r"^\d{11}$")
+    code: str = Field(min_length=6, max_length=6)
+
+
+class MerchantCodeOut(BaseModel):
+    phone: str
+    code: str
+    expires_in: int
 
 
 class MerchantPasswordIn(BaseModel):

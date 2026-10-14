@@ -136,5 +136,7 @@ class MerchantAccount(Base):
     logo_image: Mapped[str] = mapped_column(Text, default="")
     contact: Mapped[str] = mapped_column(String(80), default="")
     category: Mapped[str] = mapped_column(String(255), default="")
+    account: Mapped[str] = mapped_column(String(80), default="", index=True)
+    phone: Mapped[str] = mapped_column(String(40), default="")
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     access_token: Mapped[str | None] = mapped_column(String(80), nullable=True)

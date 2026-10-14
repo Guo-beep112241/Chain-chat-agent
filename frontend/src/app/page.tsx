@@ -1,27 +1,56 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ArrowLeft, Building2, Bug, KeyRound, Loader2, PackageOpen } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Building2, Bug, KeyRound, Loader2, PackageOpen, Smartphone, User } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { clearMerchantAuth, merchantLogin, setMerchantAuth } from "@/lib/api";
+import { clearMerchantAuth, merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export default function HomePage() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"choose" | "buyer">("choose");
+  const [mode, setMode] = useState<"password" | "code">("password");
+  const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [demoCode, setDemoCode] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [countdown, setCountdown] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   function close() {
     setOpen(false);
     setStep("choose");
+    setMode("password");
+    setAccount("");
     setPassword("");
+    setPhone("");
+    setCode("");
+    setDemoCode("");
+    setNotice("");
+    setCountdown(0);
     setError("");
+  }
+
+  function switchMode(next: "password" | "code") {
+    setMode(next);
+    setError("");
+    setNotice("");
+    setDemoCode("");
   }
 
   function goSupplier() {
@@ -33,15 +62,41 @@ export default function HomePage() {
     router.push("/dashboard");
   }
 
-  async function loginBuyer() {
-    if (!password) {
-      setError("请输入登录密码");
+  async function sendCode() {
+    if (!/^\d{11}$/.test(phone.trim())) {
+      setError("请输入 11 位手机号");
       return;
     }
-    setSubmitting(true);
+    setRequesting(true);
     setError("");
+    setNotice("");
     try {
-      const res = await merchantLogin(password);
+      const res = await requestMerchantCode(phone.trim());
+      setDemoCode(res.code);
+      setCode(res.code); // 演示模式：验证码自动填入
+      setNotice(`演示验证码已生成：${res.code}（5 分钟内有效）`);
+      setCountdown(60);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "获取验证码失败");
+    } finally {
+      setRequesting(false);
+    }
+  }
+
+  async function loginBuyer() {
+    setError("");
+    if (mode === "password") {
+      if (!account.trim()) { setError("请输入登录账号"); return; }
+      if (!password) { setError("请输入登录密码"); return; }
+    } else {
+      if (!/^\d{11}$/.test(phone.trim())) { setError("请输入 11 位手机号"); return; }
+      if (!code.trim()) { setError("请输入验证码"); return; }
+    }
+    setSubmitting(true);
+    try {
+      const res = mode === "password"
+        ? await merchantLogin(account.trim(), password)
+        : await merchantCodeLogin(phone.trim(), code.trim());
       setMerchantAuth(res.access_token);
       router.push("/dashboard");
     } catch (e) {
@@ -119,29 +174,72 @@ export default function HomePage() {
             ) : (
               <>
                 <button
-                  onClick={() => { setStep("choose"); setError(""); setPassword(""); }}
+                  onClick={() => { setStep("choose"); switchMode("password"); setError(""); setAccount(""); setPassword(""); setPhone(""); setCode(""); setDemoCode(""); setNotice(""); setCountdown(0); }}
                   className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"
                 >
                   <ArrowLeft className="size-3.5" />返回
                 </button>
                 <h2 className="text-lg font-bold">采购方登录</h2>
-                <p className="mt-1 text-xs text-[var(--muted)]">输入登录密码进入采购工作台</p>
-                <div className="relative mt-4">
-                  <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                  <Input
-                    type="password"
-                    className="pl-9"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="登录密码"
-                    autoFocus
-                    onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }}
-                  />
+                <p className="mt-1 text-xs text-[var(--muted)]">账号密码或手机验证码两种方式进入采购工作台</p>
+
+                <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-[var(--paper)] p-1">
+                  <button
+                    onClick={() => switchMode("password")}
+                    className={cn("rounded-lg px-3 py-2 text-xs font-semibold transition", mode === "password" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--muted)] hover:text-[var(--ink)]")}
+                  >
+                    账号密码登录
+                  </button>
+                  <button
+                    onClick={() => switchMode("code")}
+                    className={cn("rounded-lg px-3 py-2 text-xs font-semibold transition", mode === "code" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--muted)] hover:text-[var(--ink)]")}
+                  >
+                    手机验证码登录
+                  </button>
                 </div>
+
+                {mode === "password" ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                      <Input className="pl-9" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="登录账号" autoFocus />
+                    </div>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                      <Input type="password" className="pl-9" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="登录密码" onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    <div className="relative">
+                      <Smartphone className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                      <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="请输入 11 位手机号" inputMode="numeric" maxLength={11} autoFocus />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                        <Input className="pl-9" value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 位验证码" inputMode="numeric" maxLength={6} />
+                      </div>
+                      <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || countdown > 0 || !phone.trim()}>
+                        {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? `${countdown}s` : "获取验证码"}
+                      </Button>
+                    </div>
+                    {demoCode && (
+                      <div className="rounded-xl border border-dashed border-[var(--accent)]/30 bg-[var(--accent-faint)] p-3 text-sm">
+                        <div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div>
+                        <div className="mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
+                        <p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {error && <div className="mt-3 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning-faint)] p-2.5 text-xs text-[var(--warning)]">{error}</div>}
                 <Button variant="accent" size="lg" className="mt-4 w-full" disabled={submitting} onClick={() => void loginBuyer()}>
                   {submitting ? <Loader2 className="size-4 animate-spin" /> : "登录并进入"}
                 </Button>
+                <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3 text-[11px] leading-5 text-[var(--muted)]">
+                  演示凭证：账号 <span className="font-semibold text-[var(--ink)]">admin</span> · 手机号 <span className="font-semibold text-[var(--ink)]">13800138000</span>。验证码为演示码，点击「获取验证码」直接返回。
+                </div>
               </>
             )}
           </div>

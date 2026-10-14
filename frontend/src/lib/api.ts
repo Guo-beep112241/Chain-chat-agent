@@ -82,6 +82,7 @@ export type SupplierCode = { phone: string; code: string; expires_in: number };
 export type SupplierToken = { access_token: string; phone: string };
 export type MerchantProfile = { store_name: string; logo_emoji: string; logo_image: string; contact: string; category: string };
 export type MerchantToken = MerchantProfile & { access_token: string };
+export type MerchantCode = { phone: string; code: string; expires_in: number };
 export type EvaluationDataset = { key: string; label: string; filename: string; exists: boolean; count: number; size_bytes: number };
 export type RuleEvaluationCase = { case_id: string; group: string; supplier: string; product: string; expected: string; actual: string; matched: boolean; score: number; reasons: string[] };
 export type RuleEvaluationResult = {
@@ -130,8 +131,14 @@ export function supplierLogin(phone: string, code: string) {
 }
 
 // —— 采购方（商家）账号 ——
-export function merchantLogin(password: string) {
-  return request<MerchantToken>("/api/auth/merchant/login", { method: "POST", body: JSON.stringify({ password }) });
+export function merchantLogin(account: string, password: string) {
+  return request<MerchantToken>("/api/auth/merchant/login", { method: "POST", body: JSON.stringify({ account, password }) });
+}
+export function requestMerchantCode(phone: string) {
+  return request<MerchantCode>("/api/auth/merchant/request-code", { method: "POST", body: JSON.stringify({ phone }) });
+}
+export function merchantCodeLogin(phone: string, code: string) {
+  return request<MerchantToken>("/api/auth/merchant/login-code", { method: "POST", body: JSON.stringify({ phone, code }) });
 }
 export function merchantLogout() {
   return request<{ ok: boolean }>("/api/auth/merchant/logout", { method: "POST" }, "admin");

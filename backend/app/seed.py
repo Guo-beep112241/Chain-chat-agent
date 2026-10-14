@@ -54,16 +54,27 @@ def seed_demo_data(db: Session) -> None:
 
 
 def seed_merchant_account(db: Session) -> None:
-    """幂等写入唯一采购方账号（虚构「小鹿生活馆」）。初始密码取 MERCHANT_PASSWORD 环境变量，可在账号安全里改。"""
-    if db.scalar(select(MerchantAccount.id).limit(1)) is not None:
-        return
-    db.add(
-        MerchantAccount(
+    """幂等写入唯一采购方账号（虚构「小鹿生活馆」）。初始密码取 MERCHANT_PASSWORD 环境变量，可在账号安全里改。
+
+    账号 / 手机号分别取 MERCHANT_ACCOUNT / MERCHANT_PHONE 环境变量（用于账号密码与验证码登录）。
+    旧库已有账号但缺这两个字段时回填，保证升级后新登录方式可用。
+    """
+    settings = get_settings()
+    account = db.scalar(select(MerchantAccount).order_by(MerchantAccount.id).limit(1))
+    if account is None:
+        account = MerchantAccount(
             store_name="小鹿生活馆",
             logo_emoji="🦌",
             contact="",
             category="",
-            password_hash=hash_password(get_settings().merchant_password),
+            account=settings.merchant_account,
+            phone=settings.merchant_phone,
+            password_hash=hash_password(settings.merchant_password),
         )
-    )
+        db.add(account)
+    else:
+        if not account.account:
+            account.account = settings.merchant_account
+        if not account.phone:
+            account.phone = settings.merchant_phone
     db.commit()
