@@ -10,7 +10,7 @@ import app.main as main_module
 from app.database import Base, get_db
 from app.main import app
 from app.seed import seed_demo_data, seed_merchant_account
-from app.services.llm import NegotiationTurn, parse_negotiation_turn
+from app.services.llm import FALLBACK_REPLY, SERVICE_UNAVAILABLE_NOTICE, NegotiationTurn, parse_negotiation_turn
 from app.services.term_extraction import extract_supplier_terms
 
 ADMIN_HEADERS = {"Authorization": "Bearer lantan-admin-demo-2025"}
@@ -86,10 +86,10 @@ def make_client(monkeypatch, turn: NegotiationTurn) -> TestClient:
         return turn
 
     async def fake_opening(**kwargs):
-        return "您好，感谢提交方案，我们想继续商量合作条件。"
+        return NegotiationTurn(reply="您好，感谢提交方案，我们想继续商量合作条件。")
 
     async def fake_recovery(**kwargs):
-        return "这组条件暂时超过采购底线，能否先回到上一轮方案，我们再继续寻找折中空间？"
+        return NegotiationTurn(reply="这组条件暂时超过采购底线，能否先回到上一轮方案，我们再继续寻找折中空间？")
 
     monkeypatch.setattr(main_module, "generate_negotiation_turn", fake_turn)
     monkeypatch.setattr(main_module, "generate_opening_message", fake_opening)
@@ -212,3 +212,33 @@ def test_price_above_hard_cap_marks_offer_eliminated_but_keeps_ai_open(monkeypat
     assert again["status"] == "ai_active"
     assert again["classification"] == "negotiating"
     assert again["assistant_message"] is not None
+
+
+def test_model_failure_is_recorded_as_system_notice_not_ai_reply(monkeypatch):
+    """模型不可用时不能把兜底文案伪装成 AI 发言写进谈判记录。"""
+    turn = NegotiationTurn(reply=FALLBACK_REPLY, mode="fallback")
+    client = make_client(monkeypatch, turn)
+    # 开场消息同样走模型，这里让它也返回兜底结果，验证两条路径都不写 AI 发言。
+    async def fake_opening_fallback(**kwargs):
+        return NegotiationTurn(reply=FALLBACK_REPLY, mode="fallback")
+
+    monkeypatch.setattr(main_module, "generate_opening_message", fake_opening_fallback)
+    headers = login_headers(client)
+    result = submit_offer(client, headers)
+    assert result["classification"] == "negotiating"
+
+    chat = client.post(
+        f"/api/negotiations/{result['negotiation_id']}/messages",
+        json={"content": "我们最低 22 元，200 件起订。"},
+        headers=headers,
+    ).json()
+    # 没有 AI 回复可返回，前端只负责展示一条系统提示。
+    assert chat["assistant_message"] is None
+
+    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=ADMIN_HEADERS).json()
+    assert not any(message["sender"] == "ai" for message in detail["messages"])
+    assert any(
+        message["sender"] == "system" and message["content"] == SERVICE_UNAVAILABLE_NOTICE
+        for message in detail["messages"]
+    )
+    assert not any(message["content"] == FALLBACK_REPLY for message in detail["messages"])

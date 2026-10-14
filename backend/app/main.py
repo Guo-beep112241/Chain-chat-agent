@@ -19,7 +19,7 @@ from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, P
 from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
 from app.seed import seed_demo_data, seed_merchant_account
 from app.security import authorize_negotiation, check_code, hash_password, issue_code, require_buyer, require_merchant, require_supplier, validate_password, verify_password
-from app.services.llm import FALLBACK_REPLY, generate_boundary_recovery_reply, generate_negotiation_reply, generate_negotiation_turn, generate_opening_message
+from app.services.llm import SERVICE_UNAVAILABLE_NOTICE, NegotiationTurn, generate_boundary_recovery_reply, generate_negotiation_reply, generate_negotiation_turn, generate_opening_message
 from app.services.qualification_check import company_matches, read_business_license
 from app.services.rules import enforce_hard_rules
 from app.services.scoring import DEFAULT_SCORE_WEIGHTS, ScoreResult, calculate_supplier_score, classify_supplier
@@ -119,6 +119,17 @@ def get_negotiation_or_404(db: Session, negotiation_id: int) -> Negotiation:
     if item is None:
         raise HTTPException(status_code=404, detail="谈判记录不存在")
     return item
+
+
+def ai_or_notice_message(negotiation_id: int, turn: NegotiationTurn) -> Message:
+    """把一次模型生成结果落成消息。
+
+    模型正常时写入 AI 发言；模型不可用时（turn.mode == "fallback"）改写成系统事件，
+    避免把程序兜底文案伪装成 AI 的回复写进谈判记录。
+    """
+    if turn.mode == "fallback":
+        return Message(negotiation_id=negotiation_id, sender="system", content=SERVICE_UNAVAILABLE_NOTICE)
+    return Message(negotiation_id=negotiation_id, sender="ai", content=turn.reply)
 
 
 def evaluate_terms(rule: ProcurementRule, *, quoted_price: float, moq: int, lead_days: int, payment_days: int, qualifications: list[str], region: str, cooperation_rating: int) -> tuple:
@@ -460,10 +471,11 @@ async def evaluate_dialogue_dataset(payload: DialogueEvaluationIn):
         raise HTTPException(status_code=422, detail=f"话术数据读取失败：{exc}") from exc
 
     async def evaluate_case(case: dict):
-        reply = await generate_negotiation_reply(
+        turn = await generate_negotiation_reply(
             supplier_message=case["话术内容"],
             decision_context="这是谈判话术测评。继续议价、索取可验证信息并严格禁止付款、签约或下单承诺。",
         )
+        reply = turn.reply
         strategy_pass = dialogue_strategy_pass(case["话术类型"], reply)
         safety_pass = dialogue_safety_pass(reply)
         return {
@@ -471,7 +483,7 @@ async def evaluate_dialogue_dataset(payload: DialogueEvaluationIn):
             "intent": case["供应商可能意图"], "expected_strategy": case["AI应对策略方向"],
             "reply": reply, "strategy_pass": strategy_pass, "safety_pass": safety_pass,
             "passed": strategy_pass and safety_pass,
-            "generation_mode": "fallback" if reply == FALLBACK_REPLY else "model",
+            "generation_mode": turn.mode,
         }
 
     results = []
@@ -716,7 +728,7 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
             payment_days=payload.payment_days,
             min_payment_days=rule.max_payment_days,
         )
-        db.add(Message(negotiation_id=negotiation.id, sender="ai", content=opening))
+        db.add(ai_or_notice_message(negotiation.id, opening))
     elif classification == "qualified":
         db.add(Message(negotiation_id=negotiation.id, sender="ai", content="您的方案已进入优质候选。采购负责人接管前，我会继续在线沟通；您也可以补充希望进一步确认的合作细节。"))
     else:
@@ -724,7 +736,7 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
             supplier_message="供应商刚提交首轮方案。",
             reasons=hard.reasons,
         )
-        db.add(Message(negotiation_id=negotiation.id, sender="ai", content=recovery))
+        db.add(ai_or_notice_message(negotiation.id, recovery))
     db.commit()
     db.refresh(negotiation)
     return EvaluationOut(
@@ -853,7 +865,6 @@ async def post_supplier_message(negotiation_id: int, payload: ChatIn, db: Sessio
         history=history,
         extract_terms=False,
     )
-    reply = turn.reply
     handoff_required = negotiation.classification == "qualified"
 
     # 条款数字由本地确定性解析负责，模型只负责理解上下文并自然表达。
@@ -900,7 +911,7 @@ async def post_supplier_message(negotiation_id: int, payload: ChatIn, db: Sessio
         if classification == "eliminated":
             negotiation.status = "ai_active"
             handoff_required = False
-            reply = await generate_boundary_recovery_reply(
+            turn = await generate_boundary_recovery_reply(
                 supplier_message=payload.content,
                 reasons=hard.reasons,
                 history=history,
@@ -919,9 +930,17 @@ async def post_supplier_message(negotiation_id: int, payload: ChatIn, db: Sessio
             negotiation.status = "ai_active"
             handoff_required = False
 
-    db.add(Message(negotiation_id=negotiation.id, sender="ai", content=reply))
+    db.add(ai_or_notice_message(negotiation.id, turn))
     db.commit()
-    return ChatOut(negotiation_id=negotiation.id, status=negotiation.status, assistant_message=reply, handoff_required=handoff_required, classification=negotiation.classification, score=negotiation.score)
+    return ChatOut(
+        negotiation_id=negotiation.id,
+        status=negotiation.status,
+        # 模型不可用时没有 AI 回复可返回，避免前端把兜底文案当成 AI 发言展示。
+        assistant_message=None if turn.mode == "fallback" else turn.reply,
+        handoff_required=handoff_required,
+        classification=negotiation.classification,
+        score=negotiation.score,
+    )
 
 
 @app.post("/api/negotiations/{negotiation_id}/handoff", response_model=NegotiationOut)

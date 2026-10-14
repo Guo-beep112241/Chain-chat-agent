@@ -6,15 +6,14 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUp,
-  Bot,
   Inbox,
   Loader2,
   Lock,
-  UserRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ChatMessageItem } from "@/components/chat-message";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getNegotiation,
@@ -311,60 +310,11 @@ function SupplierChatContent() {
           )}
           {negotiation.messages.length ? (
             visibleMessages.map((message) => (
-              <div
+              <ChatMessageItem
                 key={message.id}
-                className={cn(
-                  "flex gap-2.5",
-                  message.sender !== "supplier" && "justify-end",
-                  message.sender === "system" && "justify-center",
-                )}
-              >
-                {message.sender === "supplier" && (
-                  <div className="grid size-8 shrink-0 place-items-center rounded-xl bg-[var(--paper-deep)] text-xs font-bold">
-                    {negotiation.supplier.company_name.slice(0, 1)}
-                  </div>
-                )}
-                {message.sender === "system" ? (
-                  <div className="rounded-full bg-[var(--paper-deep)] px-3 py-1 text-[10px] text-[var(--muted)]">
-                    {message.content}
-                  </div>
-                ) : (
-                  <div
-                    className={cn(
-                      "max-w-[82%]",
-                      message.sender !== "supplier" && "text-right",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "inline-block rounded-2xl px-4 py-3 text-left text-sm leading-6",
-                        message.sender === "supplier"
-                          ? "rounded-tl-sm border border-[var(--line)] bg-white"
-                          : message.sender === "ai"
-                            ? "rounded-tr-sm bg-[var(--ink)] text-white"
-                            : "rounded-tr-sm bg-[var(--accent)] text-white",
-                      )}
-                    >
-                      {message.sender === "ai" && (
-                        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-[#93c5fd]">
-                          <Bot className="size-3" />
-                          AI 采购助手
-                        </div>
-                      )}
-                      {message.sender === "human" && (
-                        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-white/75">
-                          <UserRound className="size-3" />
-                          店长本人
-                        </div>
-                      )}
-                      {message.content}
-                    </div>
-                    <div className="mt-1 text-[10px] text-[var(--muted)]">
-                      {new Date(message.created_at).toLocaleString("zh-CN")}
-                    </div>
-                  </div>
-                )}
-              </div>
+                message={message}
+                supplierName={negotiation.supplier.company_name}
+              />
             ))
           ) : (
             <div className="grid h-full place-items-center text-center text-sm text-[var(--muted)]">
