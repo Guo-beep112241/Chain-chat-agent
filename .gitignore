@@ -35,3 +35,6 @@ backend/.env.bak-*
 backend/package-lock.json
 social-preview.png
 .env.bak-*
+
+# 规划/汇报类文档：保留在本地，不随代码库分发
+*.docx
