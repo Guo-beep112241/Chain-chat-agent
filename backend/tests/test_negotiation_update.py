@@ -339,3 +339,65 @@ def test_negotiation_list_supports_pagination_and_filters(monkeypatch):
     filtered = client.get("/api/negotiations?status=closed", headers=merchant_headers(client))
     assert filtered.status_code == 200
     assert filtered.json() == []
+
+
+def test_supplier_message_survives_model_failure(monkeypatch):
+    """大模型抛错时，供应商刚说的话不能跟着事务一起回滚丢掉。
+
+    改造前整段逻辑在同一个事务里，模型一抛错（或进程被中断），
+    供应商那条消息就没了——用户会以为自己没发出去。
+    """
+    import pytest
+
+    turn = NegotiationTurn(reply="收到。")
+    client = make_client(monkeypatch, turn)
+    headers = login_headers(client)
+    result = submit_offer(client, headers)
+
+    async def boom(**kwargs):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(main_module, "generate_negotiation_turn", boom)
+    with pytest.raises(RuntimeError):
+        client.post(
+            f"/api/negotiations/{result['negotiation_id']}/messages",
+            json={"content": "我们的底线是 23 元。"},
+            headers=headers,
+        )
+
+    detail = client.get(f"/api/negotiations/{result['negotiation_id']}", headers=merchant_headers(client)).json()
+    assert any(m["sender"] == "supplier" and "23 元" in m["content"] for m in detail["messages"]), "供应商消息应当已落库"
+
+
+def test_offer_is_persisted_even_if_opening_message_fails(monkeypatch):
+    """开场白生成失败不该让整份提交消失。"""
+    import pytest
+
+    turn = NegotiationTurn(reply="收到。")
+    client = make_client(monkeypatch, turn)
+    headers = login_headers(client)
+    uploaded = client.post(
+        "/api/uploads/qualification-files",
+        files={"file": ("资质.png", b"\x89PNG\r\n\x1a\n" + b"fake-image-bytes", "image/png")},
+        headers=headers,
+    ).json()
+
+    async def boom(**kwargs):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(main_module, "generate_opening_message", boom)
+    with pytest.raises(RuntimeError):
+        client.post(
+            "/api/suppliers/evaluate",
+            json={
+                "product_id": 1, "company_name": "鼎盛制造厂", "contact_name": "张三", "phone": PHONE,
+                "region": "河南郑州", "quoted_price": 24.4, "moq": 150, "lead_days": 10, "payment_days": 30,
+                "qualifications": ["营业执照", "质检报告"], "qualification_file_ids": [uploaded["id"]],
+                "cooperation_rating": 0,
+            },
+            headers=headers,
+        )
+
+    # 会话与供应商档案已经落库，供应商刷新后能看到自己的记录（而不是一片空白）
+    listed = client.get("/api/supplier/negotiations", headers=headers).json()
+    assert len(listed) == 1

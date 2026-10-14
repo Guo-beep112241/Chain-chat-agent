@@ -950,6 +950,9 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
     )
     db.add(negotiation)
     db.flush()
+    # 同上：建档先落库，别把「等大模型生成开场白」放进同一个事务。
+    # 供应商提交的资料与评分不会因为模型服务抖动而丢失。
+    db.commit()
     if classification == "negotiating":
         opening = await generate_opening_message(
             supplier_name=payload.company_name,
@@ -1036,13 +1039,21 @@ async def stream_negotiations(merchant: MerchantAccount = Depends(require_mercha
     """
     merchant_id = merchant.id
 
+    def snapshot() -> tuple[int, int]:
+        """同步查库放到线程池执行。
+
+        SessionLocal 是同步的，直接在 async 生成器里调用会阻塞事件循环——
+        每个 SSE 连接每 2 秒阻塞一次，连接一多就会拖慢所有请求。
+        """
+        with SessionLocal() as db:
+            negotiations = db.scalar(select(func.count(Negotiation.id)).where(Negotiation.merchant_id == merchant_id)) or 0
+            messages = db.scalar(select(func.count(Message.id)).join(Negotiation, Message.negotiation_id == Negotiation.id).where(Negotiation.merchant_id == merchant_id)) or 0
+            return negotiations, messages
+
     async def events():
         last_signature = None
         for _ in range(900):  # 约 30 分钟，之后由前端自动重连
-            with SessionLocal() as db:
-                negotiations = db.scalar(select(func.count(Negotiation.id)).where(Negotiation.merchant_id == merchant_id)) or 0
-                messages = db.scalar(select(func.count(Message.id)).join(Negotiation, Message.negotiation_id == Negotiation.id).where(Negotiation.merchant_id == merchant_id)) or 0
-                signature = (negotiations, messages)
+            signature = await asyncio.to_thread(snapshot)
             if signature != last_signature:
                 yield f"event: change\ndata: {json.dumps({'negotiations': signature[0], 'messages': signature[1]}, ensure_ascii=False)}\n\n"
                 last_signature = signature
@@ -1130,6 +1141,12 @@ async def post_supplier_message(negotiation_id: int, payload: ChatIn, db: Sessio
         (remaining if effective_lead > rule.max_lead_days * 0.5 else achieved).append("交期")
         (remaining if effective_payment < rule.max_payment_days else achieved).append("账期")
         decision_context += f" 尚未达到采购目标：{'、'.join(remaining) or '无'}；已经达到采购目标：{'、'.join(achieved) or '无'}。"
+
+    # 先把「供应商已发言」这一步提交掉，再去调大模型。
+    # 原实现把整段逻辑放在同一个事务里，大模型调用（超时 60s）被夹在事务中间：
+    # 既长时间占着连接，模型一旦抛错还会连供应商刚说的话一起回滚丢掉。
+    db.commit()
+
     turn = await generate_negotiation_turn(
         supplier_message=payload.content,
         decision_context=decision_context,
@@ -1257,23 +1274,29 @@ def resume_ai(negotiation_id: int, db: Session = Depends(get_db), merchant: Merc
 async def stream_negotiation(negotiation_id: int, merchant: MerchantAccount = Depends(require_merchant)):
     merchant_id = merchant.id
 
+    def read_snapshot() -> tuple[bool, str, bool]:
+        """同步查库放到线程池（同上，避免阻塞事件循环）。"""
+        with SessionLocal() as db:
+            negotiation = db.get(Negotiation, negotiation_id)
+            if negotiation is None or negotiation.merchant_id != merchant_id:
+                return False, "", False
+            payload = {"id": negotiation.id, "status": negotiation.status, "score": negotiation.score, "classification": negotiation.classification}
+            return True, json.dumps(payload, ensure_ascii=False, sort_keys=True), negotiation.status == "closed"
+
     async def events():
         last_signature = None
         for _ in range(900):
-            with SessionLocal() as db:
-                negotiation = db.get(Negotiation, negotiation_id)
-                if negotiation is None or negotiation.merchant_id != merchant_id:
-                    yield "event: error\ndata: {\"detail\": \"谈判记录不存在\"}\n\n"
-                    return
-                snapshot = {"id": negotiation.id, "status": negotiation.status, "score": negotiation.score, "classification": negotiation.classification}
-                signature = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
-                if signature != last_signature:
-                    yield f"event: status\ndata: {signature}\n\n"
-                    last_signature = signature
-                else:
-                    yield ": keep-alive\n\n"
-                if negotiation.status == "closed":
-                    return
+            found, signature, closed = await asyncio.to_thread(read_snapshot)
+            if not found:
+                yield "event: error\ndata: {\"detail\": \"谈判记录不存在\"}\n\n"
+                return
+            if signature != last_signature:
+                yield f"event: status\ndata: {signature}\n\n"
+                last_signature = signature
+            else:
+                yield ": keep-alive\n\n"
+            if closed:
+                return
             await asyncio.sleep(2)
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
