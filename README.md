@@ -186,19 +186,34 @@ DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres
 ```text
 frontend/       Next.js + TypeScript + Tailwind + shadcn/ui 工作台
 backend/        FastAPI + Pydantic + SQLAlchemy + SSE + DeepSeek 谈话 + 百度 OCR 资质核验
-backend/tests/  18 个自动化测试（内存数据库 + 模拟外部服务）
+backend/tests/  48 个自动化测试（内存数据库 + 模拟外部服务）
 render.yaml     Render 后端一键部署配置（Blueprint）
 DEPLOY.md       公开部署指南（Vercel + Render + Supabase）
 ```
 
 ## 本地测试
 
-后端附带 18 个自动化测试（硬规则与评分、谈判中重新评分、资质上传认领与 OCR 四级状态、话术筛检等），全部使用内存数据库与模拟外部服务——不会写入开发数据，也不会真实调用大模型或百度接口：
+后端有 48 个自动化测试，覆盖硬规则与评分、谈判中重新评分与条款抽取、
+上传/下载安全校验、鉴权与令牌生命周期、限流、提交幂等、
+Alembic 基线一致性与可访问性相关的接口行为。
+全部使用内存数据库并 mock 外部服务——不会写入开发数据，
+也不会真实调用大模型或百度接口。
 
 ```bash
 cd backend
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest tests/ -q
 ```
+
+覆盖率（当前 71%，CI 门槛设 70%）：
+
+```bash
+.venv/bin/python -m pytest tests/ -q --cov=app --cov-report=term-missing
+```
+
+> 方案里给的目标是 80%，目前尚未达到。差距主要在
+> `app/services/ml_scoring.py`（30%，ML 训练/推理路径缺少测试）
+> 与 `app/main.py` 的少量分支（61%）。这两块是后续补测试的首选。
 
 ## 公开部署
 
