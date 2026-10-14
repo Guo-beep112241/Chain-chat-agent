@@ -7,7 +7,7 @@ import { Bell, Bot, Building2, Camera, ChevronDown, FlaskConical, Inbox, LayoutD
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clearMerchantAuth, getMerchantProfile, getMerchantToken, getNegotiations, merchantLogout, updateMerchantProfile, type MerchantProfile, type Negotiation } from "@/lib/api";
+import { clearMerchantAuth, getDashboardSummary, getMerchantProfile, getMerchantToken, getNegotiations, merchantLogout, updateMerchantProfile, type DashboardSummary, type MerchantProfile, type Negotiation } from "@/lib/api";
 import { subscribeNegotiations } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +48,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [pending, setPending] = useState<Negotiation[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [online, setOnline] = useState(true);
   const [open, setOpen] = useState(false);
 
   const [isBuyer, setIsBuyer] = useState(false);
@@ -62,18 +64,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // 铃铛 = 待接管提醒：达到人工接管标准、AI 仍在线的会话（后端不再写入 manual_required 状态）。
-  const loadPending = useCallback(async () => {
+  // 同时拉取工作台汇总，用于侧栏展示真实接待数据（不再使用写死的演示数字）。
+  const loadOverview = useCallback(async () => {
     try {
       const items = await getNegotiations();
       setPending(items.filter(item => item.classification === "qualified" && item.status === "ai_active"));
-    } catch { /* 后端未启动或令牌未配置时静默 */ }
+      setOnline(true);
+    } catch { setOnline(false); }
+    try {
+      setSummary(await getDashboardSummary());
+    } catch { /* 汇总接口不可达时保留上一次数据，不展示占位数字 */ }
   }, []);
   useEffect(() => {
-    void loadPending();
-    const timer = setInterval(() => void loadPending(), 30_000);
-    const unsubscribe = subscribeNegotiations(() => { void loadPending(); });
+    void loadOverview();
+    const timer = setInterval(() => void loadOverview(), 30_000);
+    const unsubscribe = subscribeNegotiations(() => { void loadOverview(); });
     return () => { clearInterval(timer); unsubscribe(); };
-  }, [loadPending]);
+  }, [loadOverview]);
 
   // 采购方已登录（存在商家 token）时拉取个人资料；网页调试无 token，保持死按钮现状。
   useEffect(() => {
@@ -148,15 +155,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="mt-auto rounded-2xl border border-white/10 bg-white/[.055] p-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-white/75"><Bot className="size-4 text-[var(--accent)]" />AI 守门狗正在工作</div>
-          <div className="mt-3 flex items-center justify-between text-[11px] text-white/45"><span>本月已筛选</span><span className="text-white">126 家</span></div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full w-[68%] rounded-full bg-[var(--accent)]" /></div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-white/75"><Bot className="size-4 text-[var(--accent)]" />{online ? "AI 已启用 · 正在自动接待" : "AI 暂时无法连接"}</div>
+          {summary && (
+            <>
+              <div className="mt-3 flex items-center justify-between text-[11px] text-white/55"><span>今日接待</span><span className="font-semibold text-white">{summary.today_received} 家</span></div>
+              <div className="mt-2 flex items-center justify-between text-[11px] text-white/55"><span>优质候选</span><span className="font-semibold text-white">{summary.qualified} 家</span></div>
+              <div className="mt-2 flex items-center justify-between text-[11px] text-white/55"><span>AI 谈判中</span><span className="font-semibold text-white">{summary.ai_active} 家</span></div>
+            </>
+          )}
         </div>
       </aside>
       <div className="min-w-0">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--line)] bg-[rgba(247,248,250,.88)] px-4 backdrop-blur-xl sm:px-6 lg:px-8">
           <div className="flex items-center gap-3 lg:hidden"><BrandMark /><span className="font-bold">链谈 Agent</span></div>
-          <div className="hidden items-center gap-2 text-xs text-[var(--muted)] lg:flex"><span className="size-2 rounded-full bg-[var(--success)]" />系统运行正常·AI 防火墙已开启</div>
+          <div className="hidden items-center gap-2 text-xs text-[var(--muted)] lg:flex"><span className={cn("size-2 rounded-full", online ? "bg-[var(--success)]" : "bg-[var(--warning)]")} />{online ? "服务正常 · AI 已在自动接待" : "服务连接中断，正在重试"}</div>
           <div className="ml-auto flex items-center gap-3">
             <div className="relative">
               <button aria-label="通知" onClick={() => setOpen(current => !current)} className="relative grid size-9 place-items-center rounded-xl border border-[var(--line)] bg-white text-[var(--muted)]">

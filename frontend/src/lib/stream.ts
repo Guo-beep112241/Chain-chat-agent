@@ -1,6 +1,7 @@
 import { API_BASE, getMerchantToken } from "@/lib/api";
+import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
 
-const ADMIN_TOKEN = process.env.NEXT_PUBLIC_ADMIN_TOKEN || "";
+const ADMIN_TOKEN = DEBUG_TOOLS_ENABLED ? process.env.NEXT_PUBLIC_ADMIN_TOKEN || "" : "";
 const RECONNECT_DELAY_MS = 3000;
 
 // 连接商家侧全局实时通道：任一会话出现新消息、状态 / 评分 / 分类变化都会触发一次回调。

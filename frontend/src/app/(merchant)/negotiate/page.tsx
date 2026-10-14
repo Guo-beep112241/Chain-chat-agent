@@ -41,6 +41,7 @@ import {
   toggleQualificationVerified,
   type Negotiation,
 } from "@/lib/api";
+import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
 import { subscribeNegotiations } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
@@ -117,7 +118,7 @@ export default function NegotiatePage() {
       setSessions(items);
       const params = new URLSearchParams(window.location.search);
       const queryId = preferredId ?? Number(params.get("id") || 0);
-      if (params.get("view") === "supplier-test") setView("supplier-test");
+      if (params.get("view") === "supplier-test" && DEBUG_TOOLS_ENABLED) setView("supplier-test");
       setSelectedId((current) =>
         items.some((item) => item.id === (queryId || current))
           ? queryId || current
@@ -272,27 +273,29 @@ export default function NegotiatePage() {
             {active.product.name} · {active.supplier.region} · 会话 #{active.id}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl border border-[var(--line)] bg-white p-1">
-            <button
-              onClick={() => changeView("buyer")}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold",
-                view === "buyer" && "bg-[var(--ink)] text-white",
-              )}
-            >
-              采购方视角
-            </button>
-            <button
-              onClick={() => changeView("supplier-test")}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold",
-                view === "supplier-test" && "bg-[var(--accent)] text-white",
-              )}
-            >
-              模拟供应商
-            </button>
-          </div>
+          <div className="flex flex-wrap items-center gap-2">
+          {DEBUG_TOOLS_ENABLED && (
+            <div className="flex rounded-xl border border-dashed border-[var(--line)] bg-white p-1">
+              <button
+                onClick={() => changeView("buyer")}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  view === "buyer" && "bg-[var(--ink)] text-white",
+                )}
+              >
+                采购方视角
+              </button>
+              <button
+                onClick={() => changeView("supplier-test")}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-semibold",
+                  view === "supplier-test" && "bg-[var(--accent)] text-white",
+                )}
+              >
+                模拟供应商
+              </button>
+            </div>
+          )}
           <Badge
             className={cn(
               "border-0 px-3 py-1.5",

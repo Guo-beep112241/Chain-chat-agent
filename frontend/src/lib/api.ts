@@ -1,5 +1,9 @@
+import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const ADMIN_TOKEN = process.env.NEXT_PUBLIC_ADMIN_TOKEN || "";
+// 演示用管理员令牌兜底只在调试开关打开时生效：公开部署下常量折叠为空串，
+// 令牌不会被内联进产物，也不再出现「未登录也能读商家数据」的入口。
+const ADMIN_TOKEN = DEBUG_TOOLS_ENABLED ? process.env.NEXT_PUBLIC_ADMIN_TOKEN || "" : "";
 
 const SUPPLIER_TOKEN_KEY = "liantan_supplier_token";
 const SUPPLIER_PHONE_KEY = "liantan_supplier_phone";
