@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChatMessageItem } from "@/components/chat-message";
+import { ChatMessageList } from "@/components/chat-message";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getNegotiation,
@@ -348,13 +348,10 @@ function SupplierChatContent() {
             </button>
           )}
           {negotiation.messages.length ? (
-            visibleMessages.map((message) => (
-              <ChatMessageItem
-                key={message.id}
-                message={message}
-                supplierName={negotiation.supplier.company_name}
-              />
-            ))
+            <ChatMessageList
+              messages={visibleMessages}
+              supplierName={negotiation.supplier.company_name}
+            />
           ) : (
             <div className="grid flex-1 place-items-center text-center text-sm text-[var(--muted)]">
               <div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import { AlertTriangle, Bot, Info, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -10,11 +11,32 @@ export type ChatMessage = {
   created_at: string;
 };
 
+// 同一段对话里间隔小于这个值就不再重复显示时间，减少视觉噪声。
+const TIME_GROUP_GAP_MS = 5 * 60 * 1000;
+
 // 模型不可用时的系统提示：既匹配后端的新文案，也兼容历史库里已经写成 AI 发言的旧兜底文案。
 const SERVICE_NOTICE_PREFIXES = ["AI 服务暂时不可用", "模型服务暂时不可用"];
 
 function isServiceNotice(message: ChatMessage): boolean {
   return SERVICE_NOTICE_PREFIXES.some((prefix) => message.content.startsWith(prefix));
+}
+
+function dayKey(iso: string): string {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatDay(iso: string): string {
+  const date = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  if (dayKey(iso) === dayKey(today.toISOString())) return "今天";
+  if (dayKey(iso) === dayKey(yesterday.toISOString())) return "昨天";
+  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /**
@@ -23,7 +45,15 @@ function isServiceNotice(message: ChatMessage): boolean {
  * - ai / human：右侧深色气泡（AI 为墨黑，人工为品牌蓝）
  * - system：居中的事件行；AI 服务不可用时用琥珀色警示样式，避免被当成 AI 的回复
  */
-export function ChatMessageItem({ message, supplierName }: { message: ChatMessage; supplierName: string }) {
+export function ChatMessageItem({
+  message,
+  supplierName,
+  showTimestamp = true,
+}: {
+  message: ChatMessage;
+  supplierName: string;
+  showTimestamp?: boolean;
+}) {
   if (message.sender === "system" || isServiceNotice(message)) {
     const alert = isServiceNotice(message);
     return (
@@ -80,10 +110,54 @@ export function ChatMessageItem({ message, supplierName }: { message: ChatMessag
           )}
           {message.content}
         </div>
-        <div className="mt-1 text-[11px] text-[var(--muted)]">
-          {new Date(message.created_at).toLocaleString("zh-CN")}
-        </div>
+        {showTimestamp && (
+          <div className="tnum mt-1 text-[11px] text-[var(--muted)]">
+            {formatTime(message.created_at)}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * 消息列表：负责按天分组与时间聚合。
+ * 原来每条消息都带一串完整的「2026/10/14 17:34:33」，一屏十几条全是时间；
+ * 现在跨天插入日期分隔，同一分钟内只保留一个时间戳。
+ */
+export function ChatMessageList({
+  messages,
+  supplierName,
+}: {
+  messages: ChatMessage[];
+  supplierName: string;
+}) {
+  return (
+    <>
+      {messages.map((message, index) => {
+        const previous = messages[index - 1];
+        const newDay = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
+        const gap = previous
+          ? new Date(message.created_at).getTime() - new Date(previous.created_at).getTime()
+          : Number.POSITIVE_INFINITY;
+        const showTimestamp = newDay || !Number.isFinite(gap) || gap >= TIME_GROUP_GAP_MS;
+        return (
+          <Fragment key={message.id}>
+            {newDay && (
+              <div className="flex justify-center">
+                <span className="tnum rounded-full bg-[var(--paper-deep)] px-3 py-1 text-[11px] text-[var(--muted)]">
+                  {formatDay(message.created_at)}
+                </span>
+              </div>
+            )}
+            <ChatMessageItem
+              message={message}
+              supplierName={supplierName}
+              showTimestamp={showTimestamp}
+            />
+          </Fragment>
+        );
+      })}
+    </>
   );
 }

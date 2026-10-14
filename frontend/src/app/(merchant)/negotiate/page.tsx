@@ -12,9 +12,11 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  BadgeCheck,
   ArrowUp,
   CheckCircle2,
   ClipboardList,
+  ExternalLink,
   FileBadge2,
   Hand,
   Inbox,
@@ -29,7 +31,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChatMessageItem } from "@/components/chat-message";
+import { ChatMessageList } from "@/components/chat-message";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getNegotiation,
@@ -560,13 +562,10 @@ export default function NegotiatePage() {
               </button>
             )}
             {active.messages.length ? (
-              visibleMessages.map((message) => (
-                <ChatMessageItem
-                  key={message.id}
-                  message={message}
-                  supplierName={active.supplier.company_name}
-                />
-              ))
+              <ChatMessageList
+                messages={visibleMessages}
+                supplierName={active.supplier.company_name}
+              />
             ) : (
               <div className="grid flex-1 place-items-center text-center text-sm text-[var(--muted)]">
                 <div>
@@ -732,63 +731,64 @@ export default function NegotiatePage() {
               </div>
               {active.supplier.qualification_files.length ? (
                 <div className="mt-3 space-y-2">
-                  {active.supplier.qualification_files.map((file) => (
-                    <div
-                      key={file.id}
-                      className="flex items-center justify-between gap-2 rounded-xl border border-[var(--line)] px-3 py-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">
-                          {file.original_name}
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-[var(--muted)]">
-                          {Math.max(1, Math.round(file.size_bytes / 1024))} KB ·{" "}
-                          {new Date(file.uploaded_at).toLocaleString("zh-CN")}
-                          {file.ocr_status === "passed" && (
-                            <span className="font-bold text-[var(--success)]">
-                              {" "}
-                              · 识别一致
-                            </span>
-                          )}
-                          {file.ocr_status === "mismatch" && (
-                            <span className="font-bold text-[var(--danger)]">
-                              {" "}
-                              · 识别不一致
-                            </span>
-                          )}
-                          {(file.ocr_status === "not_applicable" ||
-                            file.ocr_status === "unavailable" ||
-                            file.ocr_status === "not_checked") && (
-                            <span className="font-bold text-[var(--warning)]">
-                              {" "}
-                              · 转人工核验
-                            </span>
-                          )}
-                          {file.ocr_detail && (
-                            <div className="mt-0.5 leading-4">
-                              {file.ocr_detail}
+                  {active.supplier.qualification_files.map((file) => {
+                    // OCR 状态枚举集中在一处，避免散落的四组条件判断把行结构撑变形。
+                    const status =
+                      file.ocr_status === "passed"
+                        ? { label: "识别一致", tone: "text-[var(--success)]" }
+                        : file.ocr_status === "mismatch"
+                          ? { label: "识别不一致", tone: "text-[var(--danger)]" }
+                          : { label: "转人工核验", tone: "text-[var(--warning)]" };
+                    return (
+                      <div
+                        key={file.id}
+                        className="rounded-[var(--radius-control)] border border-[var(--line)] p-3"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <FileBadge2 className="mt-0.5 size-4 shrink-0 text-[var(--muted)]" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-xs font-medium" title={file.original_name}>
+                              {file.original_name}
                             </div>
-                          )}
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--muted)]">
+                              <span className="tnum">{Math.max(1, Math.round(file.size_bytes / 1024))} KB</span>
+                              <span>·</span>
+                              <span className="tnum">{new Date(file.uploaded_at).toLocaleDateString("zh-CN")}</span>
+                              <span>·</span>
+                              <span className={cn("font-semibold", status.tone)}>{status.label}</span>
+                            </div>
+                            {file.ocr_detail && (
+                              <p className="mt-1.5 text-[11px] leading-5 text-[var(--muted)]">
+                                {file.ocr_detail}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {/* 操作放到独立一行：300px 宽的右栏里，按钮和文件名挤在一行必然折行 */}
+                        <div className="mt-3 flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => void openQualificationFile(file.id)}
+                          >
+                            <ExternalLink className="size-3.5" />
+                            查看文件
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={file.verified ? "outline" : "accent"}
+                            className="flex-1"
+                            aria-pressed={file.verified}
+                            onClick={() => void toggleVerify(file.id)}
+                          >
+                            <BadgeCheck className="size-3.5" />
+                            {file.verified ? "已核验" : "标记核验"}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void openQualificationFile(file.id)}
-                        >
-                          查看
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={file.verified ? "outline" : "accent"}
-                          onClick={() => void toggleVerify(file.id)}
-                        >
-                          {file.verified ? "已核验" : "标记核验"}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="mt-3 text-xs text-[var(--muted)]">
