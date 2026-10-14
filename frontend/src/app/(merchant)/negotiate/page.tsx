@@ -545,6 +545,24 @@ export default function NegotiatePage() {
           </div>
         )}
 
+      {/* 窄屏下右侧分析栏会堆叠到对话下方，评分、报价这些关键信息第一屏看不到；
+          这里补一条紧凑摘要，仅在右侧栏不并排显示时出现。 */}
+      <Card className="mb-5 xl:hidden">
+        <CardContent className="flex flex-wrap items-center gap-x-5 gap-y-2 p-3 px-4">
+          <div className="flex items-baseline gap-1">
+            <span className="tnum text-2xl font-bold">{active.score}</span>
+            <span className="text-xs text-[var(--muted)]">/ 100</span>
+          </div>
+          <Badge className={cn("border-0 px-2.5 py-1", active.classification === "qualified" ? "bg-[var(--success-faint)] text-[var(--success)]" : active.classification === "eliminated" ? "bg-[var(--danger-faint)] text-[var(--danger)]" : "bg-[var(--accent-faint)] text-[var(--accent-strong)]")}>
+            {classificationText}
+          </Badge>
+          <span className="tnum text-xs text-[var(--muted)]">报价 ¥{active.quoted_price}</span>
+          <span className="tnum text-xs text-[var(--muted)]">起订量 {active.moq} 件</span>
+          <span className="tnum text-xs text-[var(--muted)]">交期 {active.lead_days} 天</span>
+          <span className="tnum text-xs text-[var(--muted)]">账期 {active.payment_days} 天</span>
+        </CardContent>
+      </Card>
+
       <div className="grid min-h-[680px] gap-5 lg:grid-cols-[260px_1fr] xl:min-h-0 xl:flex-1 xl:grid-cols-[270px_1fr_300px] xl:overflow-hidden">
         <Card className="hidden min-h-0 overflow-hidden lg:flex lg:flex-col">
           <CardContent className="flex h-full min-h-0 flex-col p-0">
