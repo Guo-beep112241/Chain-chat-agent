@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Inbox, Loader2, LogOut, MessageSquare, UserRound } from "lucide-react";
 import { clearSupplierAuth, getSupplierNegotiations, getSupplierToken, type Negotiation } from "@/lib/api";
+import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const statusText: Record<string, string> = { ai_active: "AI 洽谈中", manual_required: "等待人工沟通", human_active: "人工沟通中", closed: "已结束" };
@@ -123,19 +124,18 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
         )}
       </header>
 
-      {logoutOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setLogoutOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-2xl border border-[var(--line)] bg-white p-6 shadow-2xl">
-            <h2 className="text-lg font-bold">确定要退出登录吗？</h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">退出后需重新验证手机号，才能再次进入供应商入口和继续洽谈。</p>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setLogoutOpen(false)} className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] hover:border-[var(--ink)]">取消</button>
-              <button onClick={confirmLogout} className="rounded-xl bg-[var(--warning)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90">确定退出</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        title="确定要退出登录吗？"
+        description="退出后需重新验证手机号，才能再次进入供应商入口和继续洽谈。"
+        footer={
+          <>
+            <button onClick={() => setLogoutOpen(false)} className="flex-1 rounded-[var(--radius-control)] border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--ink)] transition hover:border-[var(--ink)]">取消</button>
+            <button onClick={confirmLogout} className="flex-1 rounded-[var(--radius-control)] bg-[var(--warning)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90">确定退出</button>
+          </>
+        }
+      />
 
       {children}
     </>

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bell, Bot, Building2, Camera, ChevronDown, FlaskConical, Inbox, LayoutDashboard, Loader2, LogOut, MessagesSquare, ShieldCheck, User, X } from "lucide-react";
+import { Bell, Bot, Building2, Camera, ChevronDown, FlaskConical, Inbox, LayoutDashboard, Loader2, LogOut, MessagesSquare, ShieldCheck, User } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { Dialog } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clearMerchantAuth, getDashboardSummary, getMerchantProfile, getMerchantToken, getNegotiations, merchantLogout, updateMerchantProfile, type DashboardSummary, type MerchantProfile, type Negotiation } from "@/lib/api";
@@ -62,6 +64,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [profileError, setProfileError] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   // 铃铛 = 待接管提醒：达到人工接管标准、AI 仍在线的会话（后端不再写入 manual_required 状态）。
   // 同时拉取工作台汇总，用于侧栏展示真实接待数据（不再使用写死的演示数字）。
@@ -126,6 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setMerchant(updated);
       setProfileForm(updated);
       setProfileOpen(false);
+      toast.push("success", "个人资料已保存");
     } catch (e) {
       setProfileError(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -235,56 +239,60 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
 
-      {profileOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[var(--ink)]/30" onClick={() => setProfileOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border border-[var(--line)] bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">个人资料</h2>
-              <button aria-label="关闭" onClick={() => setProfileOpen(false)} className="grid size-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] transition hover:text-[var(--ink)]"><X className="size-4" /></button>
-            </div>
-            <p className="mt-1 text-xs text-[var(--muted)]">店名、头像、联系人与主营品类</p>
-            <div className="mt-5 flex items-start gap-4">
-              <div className="relative shrink-0">
-                {profileForm.logo_image
-                  ? <img src={profileForm.logo_image} alt="" className="size-16 rounded-2xl object-cover" />
-                  : <span className="grid size-16 place-items-center rounded-2xl bg-[var(--accent-faint)] text-3xl">{profileForm.logo_emoji || "🦌"}</span>}
-                <button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="上传头像" className="absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full bg-[var(--ink)] text-white shadow"><Camera className="size-3" /></button>
-                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleAvatarFile(f); e.target.value = ""; }} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <label className="block"><span className="text-xs font-semibold">头像 emoji</span><Input className="mt-2" value={profileForm.logo_emoji} onChange={(e) => setProfileForm({ ...profileForm, logo_emoji: e.target.value })} placeholder="例如 🦌" maxLength={8} /></label>
-                <p className="mt-1.5 text-xs leading-4 text-[var(--muted)]">可填写 emoji，或点击左侧相机上传图片作为头像</p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-3">
-              <label className="block"><span className="text-xs font-semibold">店名</span><Input className="mt-2" value={profileForm.store_name} onChange={(e) => setProfileForm({ ...profileForm, store_name: e.target.value })} placeholder="请输入店名" maxLength={120} /></label>
-              <label className="block"><span className="text-xs font-semibold">联系人</span><Input className="mt-2" value={profileForm.contact} onChange={(e) => setProfileForm({ ...profileForm, contact: e.target.value })} placeholder="请输入联系人" maxLength={80} /></label>
-              <label className="block"><span className="text-xs font-semibold">主营品类</span><Input className="mt-2" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} placeholder="例如：家居布艺、收纳日用" maxLength={255} /></label>
-            </div>
-            {profileError && <div className="mt-3 rounded-xl border border-[var(--danger)]/20 bg-[var(--danger-faint)] p-2.5 text-xs text-[var(--danger)]">{profileError}</div>}
-            <div className="mt-6 flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setProfileOpen(false)}>取消</Button>
-              <Button variant="accent" className="flex-1" disabled={savingProfile} onClick={() => void saveProfile()}>{savingProfile ? <Loader2 className="size-4 animate-spin" /> : "保存"}</Button>
-            </div>
+      <Dialog
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        title="个人资料"
+        description="店名、头像、联系人与主营品类"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" className="flex-1" onClick={() => setProfileOpen(false)}>取消</Button>
+            <Button variant="accent" className="flex-1" disabled={savingProfile} onClick={() => void saveProfile()}>
+              {savingProfile ? <Loader2 className="size-4 animate-spin" /> : "保存"}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-4">
+          <div className="relative shrink-0">
+            {profileForm.logo_image
+              ? <img src={profileForm.logo_image} alt="" className="size-16 rounded-[var(--radius-card)] object-cover" />
+              : <span className="grid size-16 place-items-center rounded-[var(--radius-card)] bg-[var(--accent-faint)] text-3xl">{profileForm.logo_emoji || "🦌"}</span>}
+            <button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="上传头像" className="absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full bg-[var(--ink)] text-white shadow"><Camera className="size-3" /></button>
+            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleAvatarFile(f); e.target.value = ""; }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <label className="block"><span className="text-xs font-semibold">头像 emoji</span><Input className="mt-2" value={profileForm.logo_emoji} onChange={(e) => setProfileForm({ ...profileForm, logo_emoji: e.target.value })} placeholder="例如 🦌" maxLength={8} /></label>
+            <p className="mt-1.5 text-[11px] leading-4 text-[var(--muted)]">可填写 emoji，或点击左侧相机上传图片作为头像</p>
           </div>
         </div>
-      )}
+        <div className="mt-4 space-y-3">
+          <label className="block"><span className="text-xs font-semibold">店名</span><Input className="mt-2" value={profileForm.store_name} onChange={(e) => setProfileForm({ ...profileForm, store_name: e.target.value })} placeholder="请输入店名" maxLength={120} /></label>
+          <label className="block"><span className="text-xs font-semibold">联系人</span><Input className="mt-2" value={profileForm.contact} onChange={(e) => setProfileForm({ ...profileForm, contact: e.target.value })} placeholder="请输入联系人" maxLength={80} /></label>
+          <label className="block"><span className="text-xs font-semibold">主营品类</span><Input className="mt-2" value={profileForm.category} onChange={(e) => setProfileForm({ ...profileForm, category: e.target.value })} placeholder="例如：家居布艺、收纳日用" maxLength={255} /></label>
+        </div>
+        {profileError && <div className="mt-3 rounded-[var(--radius-control)] border border-[var(--danger)]/20 bg-[var(--danger-faint)] p-2.5 text-xs text-[var(--danger)]">{profileError}</div>}
+      </Dialog>
 
-      {logoutOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[var(--ink)]/30" onClick={() => setLogoutOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-2xl border border-[var(--line)] bg-white p-6 text-center shadow-2xl">
-            <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-[var(--danger-faint)] text-[var(--danger)]"><LogOut className="size-5" /></div>
-            <h2 className="mt-4 text-lg font-bold">确认是否退出登录？</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">退出后将返回网页登录界面</p>
-            <div className="mt-6 flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setLogoutOpen(false)}>取消</Button>
-              <Button variant="danger" className="flex-1" disabled={loggingOut} onClick={() => void doLogout()}>{loggingOut ? <Loader2 className="size-4 animate-spin" /> : "退出登录"}</Button>
-            </div>
-          </div>
+      <Dialog
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        title="确认是否退出登录？"
+        description="退出后将返回登录界面"
+        footer={
+          <>
+            <Button variant="outline" className="flex-1" onClick={() => setLogoutOpen(false)}>取消</Button>
+            <Button variant="danger" className="flex-1" disabled={loggingOut} onClick={() => void doLogout()}>
+              {loggingOut ? <Loader2 className="size-4 animate-spin" /> : "退出登录"}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex justify-center">
+          <div className="grid size-12 place-items-center rounded-[var(--radius-card)] bg-[var(--danger-faint)] text-[var(--danger)]"><LogOut className="size-5" /></div>
         </div>
-      )}
+      </Dialog>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Archive, Check, PackagePlus, Pencil, Save, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,16 +32,15 @@ export function ProductLibraryDrawer({ onClose, onChanged }: { onClose: () => vo
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(blankProduct);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState("");
+  const toast = useToast();
 
   const loadProducts = useCallback(async () => {
     try {
       setProducts(await getManagedProducts());
-      setNotice("");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "商品列表读取失败");
+      toast.push("error", error instanceof Error ? error.message : "商品列表读取失败");
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { void loadProducts(); }, [loadProducts]);
 
@@ -77,7 +77,6 @@ export function ProductLibraryDrawer({ onClose, onChanged }: { onClose: () => vo
 
   async function saveProduct() {
     setSaving(true);
-    setNotice("");
     const weightNumbers = Object.fromEntries(
       SCORE_DIMENSIONS.map((item) => [item.key, Number(form.score_weights[item.key]) || 0]),
     );
@@ -104,10 +103,10 @@ export function ProductLibraryDrawer({ onClose, onChanged }: { onClose: () => vo
       }
       await loadProducts();
       editProduct();
-      setNotice(wasEditing ? "商品已更新" : "商品已添加");
+      toast.push("success", wasEditing ? "商品已更新" : "商品已添加");
       onChanged();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "保存失败");
+      toast.push("error", error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -118,10 +117,10 @@ export function ProductLibraryDrawer({ onClose, onChanged }: { onClose: () => vo
       if (product.active) await disableProduct(product.id);
       else await updateProduct(product.id, { ...product, active: true });
       await loadProducts();
-      setNotice(product.active ? "商品已停用，历史记录保留" : "商品已重新启用");
+      toast.push("success", product.active ? "商品已停用，历史记录保留" : "商品已重新启用");
       onChanged();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "操作失败");
+      toast.push("error", error instanceof Error ? error.message : "操作失败");
     }
   }
 
@@ -160,8 +159,6 @@ export function ProductLibraryDrawer({ onClose, onChanged }: { onClose: () => vo
             <X className="size-4" />
           </button>
         </div>
-
-        {notice && <div className="mt-4 rounded-[var(--radius-control)] bg-[var(--accent-faint)] px-4 py-3 text-sm">{notice}</div>}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1.15fr]">
           {/* 已有商品 */}
