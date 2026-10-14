@@ -81,6 +81,33 @@ BAIDU_SECRET_KEY=your-baidu-secret-key
 
 未配置 DeepSeek 密钥时，后端会使用可重复演示的本地谈判回复；规则与评分逻辑不受影响。未配置百度密钥时，资质上传直接进入人工核验，其余流程不受影响。密钥不应写入源码或提交到 Git。
 
+## 数据库迁移
+
+项目使用 Alembic 管理表结构。**当前应用启动路径仍保留 `create_all`，不会自动执行迁移**——
+这是刻意的：存量库（本地 SQLite 与线上 Supabase）此前由 `create_all` + 启动期补列维护，
+在确认基线正确之前不改动启动逻辑。
+
+```bash
+cd backend
+
+# 全新环境：直接建库
+.venv/bin/python -m alembic upgrade head
+
+# 存量库（已有数据、此前没用过 Alembic）：先标记基线，再让后续迁移生效
+.venv/bin/python -m alembic stamp head
+
+# 改完模型后生成新的迁移
+.venv/bin/python -m alembic revision --autogenerate -m "描述这次改动"
+.venv/bin/python -m alembic upgrade head
+```
+
+`tests/test_migrations.py` 会在临时库上分别用「迁移」和「模型 create_all」建表，
+再逐项比对表、列、索引、唯一约束、外键与主键——**基线是否与模型一致由测试保证**，
+而不是靠人工核对。因此每次改模型后请重新生成迁移，否则该用例会失败。
+
+> 接入 Alembic 之前的老做法（README 旧版本提到的「PostgreSQL 需手动 ALTER TABLE」）
+> 不再需要：stamp 之后就由 `upgrade head` 负责。
+
 ## 数据库
 
 本地 Demo 默认使用 SQLite，首次启动会自动建表、写入默认商家和演示商品。切换 PostgreSQL / Supabase 时，只需修改 `backend/.env`：
