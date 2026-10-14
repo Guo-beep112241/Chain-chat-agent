@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { ToastProvider } from "@/components/ui/toast";
+import { BRAND_COLORS } from "@/lib/theme";
 import "./globals.css";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -36,7 +37,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#1d4ed8",
+  themeColor: BRAND_COLORS.accent,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
