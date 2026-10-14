@@ -2,14 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Building2, Bug, KeyRound, Loader2, PackageOpen, Smartphone, User } from "lucide-react";
+import { ArrowLeft, Building2, KeyRound, Loader2, PackageOpen, Smartphone, User } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
-import { clearMerchantAuth, merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
-import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
+import { merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export default function HomePage() {
@@ -62,11 +61,6 @@ export default function HomePage() {
   function goRegister() {
     close();
     router.push("/register");
-  }
-
-  function goDebug() {
-    clearMerchantAuth();
-    router.push("/dashboard");
   }
 
   async function sendCode() {
@@ -169,15 +163,6 @@ export default function HomePage() {
                     <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--ink)] text-white"><PackageOpen className="size-5" /></span>
                     <span><span className="block text-sm font-bold">供应商</span><span className="block text-xs text-[var(--muted)]">手机号登录，进入供应商入口</span></span>
                   </button>
-                  {DEBUG_TOOLS_ENABLED && (
-                    <button
-                      onClick={goDebug}
-                      className="flex w-full items-center gap-3 rounded-xl border border-dashed border-[var(--line)] bg-white p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]/40"
-                    >
-                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--ink)] text-white"><Bug className="size-5" /></span>
-                      <span><span className="block text-sm font-bold">网页调试</span><span className="block text-xs text-[var(--muted)]">免登录，直达现有四页工作台（仅开发环境）</span></span>
-                    </button>
-                  )}
                 </div>
               </>
             ) : (

@@ -1,9 +1,8 @@
-import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
-
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-// 演示用管理员令牌兜底只在调试开关打开时生效：公开部署下常量折叠为空串，
-// 令牌不会被内联进产物，也不再出现「未登录也能读商家数据」的入口。
-const ADMIN_TOKEN = DEBUG_TOOLS_ENABLED ? process.env.NEXT_PUBLIC_ADMIN_TOKEN || "" : "";
+// 说明：这里刻意不再引用任何 NEXT_PUBLIC_ADMIN_TOKEN。
+// 只要代码里出现该变量，Next 就会把它内联进客户端产物——即使运行时用不到，
+// 任何人打开 devtools 也能读到令牌原文。因此前端完全不携带管理员令牌，
+// 一律走商家登录拿到的 token；本地调试请用演示账号登录。
 
 const SUPPLIER_TOKEN_KEY = "liantan_supplier_token";
 const SUPPLIER_PHONE_KEY = "liantan_supplier_phone";
@@ -118,8 +117,8 @@ async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "no
   if (init?.body instanceof FormData) delete headers["Content-Type"]; // 让浏览器自带 multipart boundary
   else if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
   if (auth === "admin") {
-    // 采购方登录后优先用商家 token，否则回退到环境 ADMIN_TOKEN（网页调试）。
-    const token = getMerchantToken() || ADMIN_TOKEN;
+    // 采购方登录后的商家 token；未登录则不带鉴权头，由后端返回 401。
+    const token = getMerchantToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
   else if (auth === "supplier") {
@@ -183,7 +182,7 @@ export function uploadQualificationFile(file: File, companyName: string) {
   return request<QualificationFile>("/api/uploads/qualification-files", { method: "POST", body }, "supplier");
 }
 export async function openQualificationFile(fileId: string) {
-  const token = getMerchantToken() || ADMIN_TOKEN;
+  const token = getMerchantToken();
   const response = await fetch(`${API_BASE}/api/uploads/${fileId}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error("文件读取失败");
   const url = URL.createObjectURL(await response.blob());

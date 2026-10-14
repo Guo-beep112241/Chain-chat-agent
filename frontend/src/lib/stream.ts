@@ -1,7 +1,5 @@
 import { API_BASE, getMerchantToken } from "@/lib/api";
-import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
 
-const ADMIN_TOKEN = DEBUG_TOOLS_ENABLED ? process.env.NEXT_PUBLIC_ADMIN_TOKEN || "" : "";
 const RECONNECT_DELAY_MS = 3000;
 
 // 连接商家侧全局实时通道：任一会话出现新消息、状态 / 评分 / 分类变化都会触发一次回调。
@@ -14,8 +12,8 @@ export function subscribeNegotiations(onChange: () => void): () => void {
 
   async function connect(): Promise<void> {
     if (stopped) return;
-    const token = getMerchantToken() || ADMIN_TOKEN;
-    if (!token) return; // 未登录且无调试令牌：不订阅，靠调用方的轮询兜底
+    const token = getMerchantToken();
+    if (!token) return; // 未登录：不订阅，靠调用方的轮询兜底
     try {
       const res = await fetch(`${API_BASE}/api/negotiations/stream`, {
         headers: { Authorization: `Bearer ${token}` },

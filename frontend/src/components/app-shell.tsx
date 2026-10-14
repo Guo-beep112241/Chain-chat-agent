@@ -76,18 +76,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     } catch { /* 汇总接口不可达时保留上一次数据，不展示占位数字 */ }
   }, []);
   useEffect(() => {
+    // 未登录时不要发起请求：否则会在跳转回登录页之前打出一串 401。
+    if (!isBuyer) return;
     void loadOverview();
     const timer = setInterval(() => void loadOverview(), 30_000);
     const unsubscribe = subscribeNegotiations(() => { void loadOverview(); });
     return () => { clearInterval(timer); unsubscribe(); };
-  }, [loadOverview]);
+  }, [loadOverview, isBuyer]);
 
-  // 采购方已登录（存在商家 token）时拉取个人资料；网页调试无 token，保持死按钮现状。
+  // 采购方登录态只在挂载后读取（localStorage 在服务端不存在，render 期间读会触发 hydration 报错）。
+  // 未登录则直接回登录页，避免出现「有壳无数据」的空工作台。
+  const [authChecked, setAuthChecked] = useState(false);
   useEffect(() => {
-    if (!getMerchantToken()) { setIsBuyer(false); return; }
+    if (!getMerchantToken()) {
+      setIsBuyer(false);
+      setAuthChecked(true);
+      router.replace("/");
+      return;
+    }
     setIsBuyer(true);
+    setAuthChecked(true);
     getMerchantProfile().then(profile => { setMerchant(profile); setProfileForm(profile); }).catch(() => { /* 后端不可达时静默，保留默认显示 */ });
-  }, []);
+  }, [router]);
 
   function openProfile() {
     setMenuOpen(false);
@@ -136,10 +146,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ? <img src={merchant.logo_image} alt="" className="size-7 rounded-lg object-cover" />
     : <span className="grid size-7 place-items-center rounded-lg bg-[var(--accent-faint)] text-xs font-bold text-[var(--accent-strong)]">{merchant?.logo_emoji || "鹿"}</span>;
 
-  // 采购方登录后只保留「采购工作台 / 实时谈判」；网页调试保留全部 4 页导航。
+  // 采购方登录后只保留「采购工作台 / 实时谈判」；未登录时会被上面重定向回首页。
   const navItems = isBuyer
     ? nav.filter(item => item.href === "/dashboard" || item.href === "/negotiate")
     : nav;
+
+  // 未登录时不渲染子页面：否则子页面的 useEffect 会先发出请求（401），再被重定向。
+  if (!authChecked || !isBuyer) {
+    return <div className="grid min-h-screen place-items-center text-sm text-[var(--muted)]">正在校验登录状态…</div>;
+  }
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
