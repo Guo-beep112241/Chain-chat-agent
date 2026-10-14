@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Inbox, Loader2, LogOut, MessageSquare, UserRound } from "lucide-react";
-import { clearSupplierAuth, getSupplierNegotiations, getSupplierToken, type Negotiation } from "@/lib/api";
+import { clearSupplierAuth, getSupplierNegotiations, getSupplierToken, supplierLogout, type Negotiation } from "@/lib/api";
 import { Dialog } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +62,8 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
   }
 
   function confirmLogout() {
+    // 先让服务端吊销令牌，再清本地：只清本地的话那个令牌其实仍然有效。
+    void supplierLogout().catch(() => { /* 服务端不可达也照常退出本地 */ });
     clearSupplierAuth();
     router.replace("/supplier/login");
   }

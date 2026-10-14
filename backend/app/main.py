@@ -20,7 +20,7 @@ from app.database import Base, SessionLocal, engine, get_db
 from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
 from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
 from app.seed import seed_demo_data, seed_merchant_account
-from app.security import authorize_negotiation, check_code, hash_password, issue_code, require_buyer, require_merchant, require_supplier, validate_password, verify_password
+from app.security import authorize_negotiation, check_code, hash_password, issue_code, issue_token, require_buyer, require_merchant, require_supplier, validate_password, verify_password
 from app.services.llm import SERVICE_UNAVAILABLE_NOTICE, NegotiationTurn, generate_boundary_recovery_reply, generate_negotiation_reply, generate_negotiation_turn, generate_opening_message
 from app.services.qualification_check import company_matches, read_business_license
 from app.services.rules import enforce_hard_rules
@@ -238,10 +238,10 @@ def supplier_login(payload: SupplierLoginRequest, db: Session = Depends(get_db))
         raise HTTPException(status_code=401, detail="验证码错误或已过期")
     auth = db.scalar(select(SupplierAuth).where(SupplierAuth.phone == phone))
     if auth is None:
-        auth = SupplierAuth(phone=phone, access_token=secrets.token_urlsafe(32))
+        auth = SupplierAuth(phone=phone, access_token=issue_token())
         db.add(auth)
     else:
-        auth.access_token = secrets.token_urlsafe(32)
+        auth.access_token = issue_token()
         auth.last_login_at = datetime.utcnow()
     db.commit()
     db.refresh(auth)
@@ -284,7 +284,7 @@ def merchant_register(payload: MerchantRegisterIn, db: Session = Depends(get_db)
         phone=phone,
         email=email,
         password_hash=hash_password(payload.password),
-        access_token=secrets.token_urlsafe(32),
+        access_token=issue_token(),
     )
     db.add(account)
     db.commit()
@@ -313,7 +313,7 @@ def merchant_code_login(payload: MerchantCodeLoginIn, db: Session = Depends(get_
         raise HTTPException(status_code=401, detail="手机号未绑定采购方账号")
     if not check_code(phone, payload.code):
         raise HTTPException(status_code=401, detail="验证码错误或已过期")
-    account.access_token = secrets.token_urlsafe(32)
+    account.access_token = issue_token()
     db.commit()
     db.refresh(account)
     return {**merchant_profile_out(account), "access_token": account.access_token}
@@ -324,7 +324,7 @@ def merchant_login(payload: MerchantPasswordLoginIn, db: Session = Depends(get_d
     account = db.scalar(select(MerchantAccount).where(MerchantAccount.account == payload.account.strip()))
     if account is None or not account.password_hash or not verify_password(payload.password, account.password_hash):
         raise HTTPException(status_code=401, detail="账号或密码错误")
-    account.access_token = secrets.token_urlsafe(32)
+    account.access_token = issue_token()
     db.commit()
     db.refresh(account)
     return {**merchant_profile_out(account), "access_token": account.access_token}
@@ -337,6 +337,18 @@ def merchant_logout(account: MerchantAccount = Depends(require_buyer), db: Sessi
     return {"ok": True}
 
 
+@app.post("/api/auth/supplier/logout")
+def supplier_logout(auth: SupplierAuth = Depends(require_supplier), db: Session = Depends(get_db)):
+    """登出即吊销：把 access_token 换成新值，旧令牌立刻失效。
+
+    供应商侧此前没有登出接口，退出登录只清了浏览器本地存储，
+    服务端令牌仍然有效。
+    """
+    auth.access_token = issue_token()
+    db.commit()
+    return {"ok": True}
+
+
 @app.put("/api/auth/merchant/password")
 def merchant_change_password(payload: MerchantPasswordIn, account: MerchantAccount = Depends(require_buyer), db: Session = Depends(get_db)):
     if not verify_password(payload.current_password, account.password_hash):
@@ -344,8 +356,10 @@ def merchant_change_password(payload: MerchantPasswordIn, account: MerchantAccou
     if error := validate_password(payload.new_password):
         raise HTTPException(status_code=422, detail=error)
     account.password_hash = hash_password(payload.new_password)
+    # 改密即吊销：换发新令牌，其它设备上仍握着旧令牌的会话立刻失效。
+    account.access_token = issue_token()
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "access_token": account.access_token}
 
 
 @app.get("/api/merchant/profile", response_model=MerchantProfileOut)

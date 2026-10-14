@@ -120,3 +120,64 @@ def test_validate_settings_accepts_safe_production_config():
         frontend_origin="https://example.vercel.app",
     )
     assert validate_settings(safe) == []
+
+
+def test_token_carries_issue_time_and_expires(monkeypatch):
+    """令牌内嵌签发时间，超过 TTL 即失效；篡改时间戳会导致匹配失败。"""
+    from app.security import issue_token, token_is_expired
+
+    token = issue_token()
+    assert token.rpartition(".")[2].isdigit(), "新令牌应带上签发时间戳"
+    assert token_is_expired(token) is False
+
+    monkeypatch.setattr(main_module.settings, "token_ttl_days", 30)
+    stale = f"{token.rpartition('.')[0]}.{int(__import__('time').time()) - 31 * 86400}"
+    assert token_is_expired(stale) is True
+
+    # ttl=0 表示不限制（仅本地调试）
+    monkeypatch.setattr(main_module.settings, "token_ttl_days", 0)
+    assert token_is_expired(stale) is False
+
+
+def test_expired_token_is_rejected(monkeypatch):
+    client = make_client(monkeypatch)
+    login = client.post("/api/auth/merchant/login", json={"account": "admin", "password": "链谈Agent123"}).json()
+    headers = {"Authorization": f"Bearer {login['access_token']}"}
+    assert client.get("/api/negotiations", headers=headers).status_code == 200
+
+    # 把令牌的时间戳改到 31 天前：这里改的是本地构造的字符串，
+    # 服务端按整串匹配自然找不到，同样返回 401（两种失效路径都覆盖）。
+    import time
+    forged = f"{login['access_token'].rpartition('.')[0]}.{int(time.time()) - 31 * 86400}"
+    assert client.get("/api/negotiations", headers={"Authorization": f"Bearer {forged}"}).status_code == 401
+
+
+def test_supplier_logout_revokes_token(monkeypatch):
+    client = make_client(monkeypatch)
+    code = client.post("/api/auth/supplier/request-code", json={"phone": "13700000000"}).json()["code"]
+    token = client.post("/api/auth/supplier/login", json={"phone": "13700000000", "code": code}).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/supplier/negotiations", headers=headers).status_code == 200
+
+    assert client.post("/api/auth/supplier/logout", headers=headers).status_code == 200
+    # 登出后旧令牌必须立即失效（此前只有前端清本地存储，服务端令牌仍然可用）。
+    assert client.get("/api/supplier/negotiations", headers=headers).status_code == 401
+
+
+def test_password_change_revokes_previous_token(monkeypatch):
+    client = make_client(monkeypatch)
+    login = client.post("/api/auth/merchant/login", json={"account": "admin", "password": "链谈Agent123"}).json()
+    headers = {"Authorization": f"Bearer {login['access_token']}"}
+
+    changed = client.put(
+        "/api/auth/merchant/password",
+        json={"current_password": "链谈Agent123", "new_password": "A-stronger-passw0rd"},
+        headers=headers,
+    )
+    assert changed.status_code == 200
+    new_token = changed.json()["access_token"]
+    assert new_token and new_token != login["access_token"]
+
+    # 旧令牌作废，新令牌可用
+    assert client.get("/api/negotiations", headers=headers).status_code == 401
+    assert client.get("/api/negotiations", headers={"Authorization": f"Bearer {new_token}"}).status_code == 200

@@ -146,6 +146,9 @@ export function requestSupplierCode(phone: string) {
 export function supplierLogin(phone: string, code: string) {
   return request<SupplierToken>("/api/auth/supplier/login", { method: "POST", body: JSON.stringify({ phone, code }) });
 }
+export function supplierLogout() {
+  return request<{ ok: boolean }>("/api/auth/supplier/logout", { method: "POST" }, "supplier");
+}
 
 // —— 采购方（商家）账号 ——
 export function merchantLogin(account: string, password: string) {
@@ -164,7 +167,8 @@ export function merchantLogout() {
   return request<{ ok: boolean }>("/api/auth/merchant/logout", { method: "POST" }, "admin");
 }
 export function changeMerchantPassword(current_password: string, new_password: string) {
-  return request<{ ok: boolean }>("/api/auth/merchant/password", { method: "PUT", body: JSON.stringify({ current_password, new_password }) }, "admin");
+  // 改密会吊销所有旧令牌，响应里带回新令牌，前端必须换掉本地这份。
+  return request<{ ok: boolean; access_token?: string }>("/api/auth/merchant/password", { method: "PUT", body: JSON.stringify({ current_password, new_password }) }, "admin");
 }
 export function getMerchantProfile() {
   return request<MerchantProfile>("/api/merchant/profile", undefined, "admin");

@@ -9,6 +9,7 @@ import hmac
 import re
 import secrets
 import time
+from datetime import datetime, timedelta
 
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
@@ -76,6 +77,34 @@ def check_code(phone: str, code: str) -> bool:
     return True
 
 
+def issue_token() -> str:
+    """签发访问令牌：随机串 + 内嵌签发时间。
+
+    把签发时间放进令牌本身，是为了在不改表结构的前提下支持有效期
+    （merchant_accounts 上没有任何时间列）。时间戳不可伪造：
+    令牌整体存在库里做等值匹配，改动任何一位都会匹配失败。
+    """
+    return f"{secrets.token_urlsafe(24)}.{int(time.time())}"
+
+
+def token_is_expired(token: str, last_login_at: datetime | None = None) -> bool:
+    """令牌是否超过有效期。ttl<=0 表示不限制（仅本地调试用）。
+
+    新格式（带 .时间戳）按内嵌时间判断；旧格式（无时间戳）退回用
+    账号上的 last_login_at 判断，两者都没有则视为未过期，
+    避免升级后把所有人立刻踢下线。
+    """
+    ttl_days = get_settings().token_ttl_days
+    if ttl_days <= 0:
+        return False
+    suffix = token.rpartition(".")[2]
+    if suffix.isdigit():
+        return time.time() - int(suffix) > ttl_days * 86400
+    if last_login_at is None:
+        return False
+    return datetime.utcnow() - last_login_at > timedelta(days=ttl_days)
+
+
 def _extract_bearer(authorization: str | None) -> str | None:
     if not authorization:
         return None
@@ -104,6 +133,8 @@ def require_buyer(db: Session = Depends(get_db), authorization: str | None = Hea
     account = db.scalar(select(MerchantAccount).where(MerchantAccount.access_token == token))
     if account is None:
         raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    if token_is_expired(token):
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     return account
 
 
@@ -125,6 +156,8 @@ def require_merchant(db: Session = Depends(get_db), authorization: str | None = 
     account = db.scalar(select(MerchantAccount).where(MerchantAccount.access_token == token))
     if account is None:
         raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    if token_is_expired(token):
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     return account
 
 
@@ -135,6 +168,8 @@ def require_supplier(db: Session = Depends(get_db), authorization: str | None = 
     auth = db.scalar(select(SupplierAuth).where(SupplierAuth.access_token == token))
     if auth is None:
         raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    if token_is_expired(token, auth.last_login_at):
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     return auth
 
 

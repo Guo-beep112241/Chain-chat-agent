@@ -6,7 +6,7 @@ import { ArrowLeft, CheckCircle2, KeyRound, Loader2, ShieldCheck } from "lucide-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PasswordInput } from "@/components/ui/password-input";
-import { changeMerchantPassword } from "@/lib/api";
+import { changeMerchantPassword, setMerchantAuth } from "@/lib/api";
 
 // 与后端一致：长度 > 8 位，须同时包含英文、数字。
 function validatePassword(pw: string): string | null {
@@ -33,7 +33,9 @@ export default function SecurityPage() {
     if (nextPw !== confirm) { setError("两次输入的新密码不一致"); return; }
     setSubmitting(true);
     try {
-      await changeMerchantPassword(current, nextPw);
+      const result = await changeMerchantPassword(current, nextPw);
+      // 改密会换发新令牌：不换本地这份的话，下一次请求就会 401 被踢回登录页。
+      if (result.access_token) setMerchantAuth(result.access_token);
       setDone(true);
       setCurrent(""); setNextPw(""); setConfirm("");
     } catch (err) {
