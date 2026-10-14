@@ -91,7 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!getMerchantToken()) {
       setIsBuyer(false);
       setAuthChecked(true);
-      router.replace("/");
+      router.replace("/login");
       return;
     }
     setIsBuyer(true);
@@ -139,7 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     clearMerchantAuth();
     setLoggingOut(false);
     setLogoutOpen(false);
-    router.push("/");
+    router.push("/login");
   }
 
   const avatar = merchant?.logo_image

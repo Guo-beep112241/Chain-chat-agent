@@ -204,7 +204,7 @@ export default function RegisterPage() {
 
           <p className="mt-5 text-center text-xs text-[var(--muted)]">
             已有账号？{" "}
-            <Link href="/" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">返回登录</Link>
+            <Link href="/login" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">返回登录</Link>
           </p>
         </CardContent>
       </Card>

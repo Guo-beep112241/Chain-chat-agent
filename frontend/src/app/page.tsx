@@ -1,247 +1,315 @@
-"use client";
-
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { ArrowLeft, Building2, KeyRound, Loader2, PackageOpen, Smartphone, User } from "lucide-react";
+import Link from "next/link";
+import type { Metadata } from "next";
+import {
+  ArrowRight,
+  BadgeCheck,
+  Bot,
+  Building2,
+  ClipboardCheck,
+  FileBadge2,
+  Handshake,
+  LineChart,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
-import { merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
-export default function HomePage() {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<"choose" | "buyer">("choose");
-  const [mode, setMode] = useState<"password" | "code">("password");
-  const [account, setAccount] = useState("");
-  const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
-  const [demoCode, setDemoCode] = useState("");
-  const [requesting, setRequesting] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [countdown, setCountdown] = useState(0);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+export const metadata: Metadata = {
+  title: "链谈 Agent | 供应商智能接待、分层谈判与筛选",
+  description:
+    "为中小采购商家自动接待、筛选并分层供应商的谈判系统。大模型负责理解和表达，底线、评分和决策由程序完成。",
+  alternates: { canonical: "/" },
+};
 
-  useEffect(() => {
-    if (countdown <= 0) return;
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
+const flow = [
+  {
+    step: "01",
+    icon: Bot,
+    title: "自动接待",
+    body: "供应商上门提交报价、起订量、账期与资质后，AI 立即开始洽谈，不必等你在线。",
+  },
+  {
+    step: "02",
+    icon: ShieldCheck,
+    title: "底线校验",
+    body: "价格上限、起订量、交期、账期、必备资质逐项硬性核对，触碰底线当场说明，不靠模型自觉。",
+  },
+  {
+    step: "03",
+    icon: Handshake,
+    title: "分层转人工",
+    body: "加权评分达到阈值就停止 AI 自动回复并提醒你接管，把精力只花在真正值得谈的供应商上。",
+  },
+];
 
-  function close() {
-    setOpen(false);
-    setStep("choose");
-    setMode("password");
-    setAccount("");
-    setPassword("");
-    setPhone("");
-    setCode("");
-    setDemoCode("");
-    setNotice("");
-    setCountdown(0);
-    setError("");
-  }
+const dimensions = [
+  { label: "价格竞争力", weight: 30 },
+  { label: "起订量", weight: 15 },
+  { label: "资质完整度", weight: 20 },
+  { label: "交期", weight: 10 },
+  { label: "账期", weight: 10 },
+  { label: "区域匹配", weight: 5 },
+  { label: "沟通配合度", weight: 10 },
+];
 
-  function switchMode(next: "password" | "code") {
-    setMode(next);
-    setError("");
-    setNotice("");
-    setDemoCode("");
-  }
+const capabilities = [
+  {
+    icon: ClipboardCheck,
+    title: "采购底线可配置",
+    body: "每个商品单独设定目标价、硬性价格上限、最高起订量、最长交期与账期，以及转人工分数。",
+  },
+  {
+    icon: LineChart,
+    title: "评分口径透明",
+    body: "七维加权满分，权重由你自己分配；硬性规则优先于评分，任一硬指标触线即淘汰。",
+  },
+  {
+    icon: FileBadge2,
+    title: "资质自动初筛",
+    body: "营业执照经 OCR 识别并与填写企业名比对，不一致或无法识别时转人工核验，全程留痕。",
+  },
+  {
+    icon: BadgeCheck,
+    title: "多商家数据隔离",
+    body: "每个商家账号独立存储，商品、规则、谈判记录与资质文件按账号隔离，互不可见。",
+  },
+];
 
-  function goSupplier() {
-    router.push("/supplier");
-  }
-
-  function goRegister() {
-    close();
-    router.push("/register");
-  }
-
-  async function sendCode() {
-    if (!/^\d{11}$/.test(phone.trim())) {
-      setError("请输入 11 位手机号");
-      return;
-    }
-    setRequesting(true);
-    setError("");
-    setNotice("");
-    try {
-      const res = await requestMerchantCode(phone.trim());
-      setDemoCode(res.code);
-      setCode(res.code); // 演示模式：验证码自动填入
-      setNotice(`演示验证码已生成：${res.code}（5 分钟内有效）`);
-      setCountdown(60);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "获取验证码失败");
-    } finally {
-      setRequesting(false);
-    }
-  }
-
-  async function loginBuyer() {
-    setError("");
-    if (mode === "password") {
-      if (!account.trim()) { setError("请输入登录账号"); return; }
-      if (!password) { setError("请输入登录密码"); return; }
-    } else {
-      if (!/^\d{11}$/.test(phone.trim())) { setError("请输入 11 位手机号"); return; }
-      if (!code.trim()) { setError("请输入验证码"); return; }
-    }
-    setSubmitting(true);
-    try {
-      const res = mode === "password"
-        ? await merchantLogin(account.trim(), password)
-        : await merchantCodeLogin(phone.trim(), code.trim());
-      setMerchantAuth(res.access_token);
-      router.push("/dashboard");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "登录失败");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
+export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="animate-rise w-full max-w-md">
-        <Card className="overflow-hidden">
-          <div className="h-2 bg-[var(--accent)]" />
-          <CardContent className="p-8 sm:p-10">
-            <div className="flex flex-col items-center text-center">
-              <div className="grid size-16 place-items-center rounded-2xl bg-[var(--ink)] shadow-lg">
-                <BrandMark />
-              </div>
-              <h1 className="mt-6 text-3xl font-bold tracking-tight">
-                链谈 <span className="text-[var(--accent)]">Agent</span>
-              </h1>
-              <p className="mt-1 text-[10px] tracking-[.22em] text-[var(--muted)]">SUPPLY NEGOTIATOR</p>
-              <p className="mt-5 max-w-xs text-sm leading-6 text-[var(--muted)]">为中小商家自动接待、筛选和分层供应商的采购谈判工作台。</p>
-            </div>
-            <Button
-              variant="accent"
-              size="lg"
-              className="mt-8 w-full"
-              onClick={() => {
-                setStep("choose");
-                setError("");
-                setOpen(true);
-              }}
-            >
-              登录
-            </Button>
-            <p className="mt-4 text-center text-xs leading-4 text-[var(--muted)]">采购方使用账号密码或手机验证码登录 · 供应商使用手机号验证码登录</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[var(--ink)]/30" onClick={close} />
-          <div className="relative w-full max-w-sm rounded-2xl border border-[var(--line)] bg-white p-6 shadow-2xl">
-            {step === "choose" ? (
-              <>
-                <h2 className="text-lg font-bold">选择进入身份</h2>
-                <p className="mt-1 text-xs text-[var(--muted)]">采购方与供应商对应不同的进入方式</p>
-                <div className="mt-5 space-y-3">
-                  <button
-                    onClick={() => setStep("buyer")}
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-white p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]/40"
-                  >
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--ink)] text-white"><Building2 className="size-5" /></span>
-                    <span><span className="block text-sm font-bold">采购方</span><span className="block text-xs text-[var(--muted)]">密码登录，进入采购工作台与实时谈判</span></span>
-                  </button>
-                  <button
-                    onClick={goSupplier}
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-white p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]/40"
-                  >
-                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--ink)] text-white"><PackageOpen className="size-5" /></span>
-                    <span><span className="block text-sm font-bold">供应商</span><span className="block text-xs text-[var(--muted)]">手机号登录，进入供应商入口</span></span>
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => { setStep("choose"); switchMode("password"); setError(""); setAccount(""); setPassword(""); setPhone(""); setCode(""); setDemoCode(""); setNotice(""); setCountdown(0); }}
-                  className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"
-                >
-                  <ArrowLeft className="size-3.5" />返回
-                </button>
-                <h2 className="text-lg font-bold">采购方登录</h2>
-                <p className="mt-1 text-xs text-[var(--muted)]">账号密码或手机验证码两种方式进入采购工作台</p>
-
-                <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-[var(--paper)] p-1">
-                  <button
-                    onClick={() => switchMode("password")}
-                    className={cn("rounded-lg px-3 py-2 text-xs font-semibold transition", mode === "password" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--muted)] hover:text-[var(--ink)]")}
-                  >
-                    账号密码登录
-                  </button>
-                  <button
-                    onClick={() => switchMode("code")}
-                    className={cn("rounded-lg px-3 py-2 text-xs font-semibold transition", mode === "code" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--muted)] hover:text-[var(--ink)]")}
-                  >
-                    手机验证码登录
-                  </button>
-                </div>
-
-                {mode === "password" ? (
-                  <div className="mt-4 space-y-3">
-                    <div className="relative">
-                      <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                      <Input className="pl-9" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="登录账号" autoFocus />
-                    </div>
-                    <PasswordInput leadingIcon={<KeyRound className="size-4" />} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="登录密码" onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }} />
-                  </div>
-                ) : (
-                  <div className="mt-4 space-y-3">
-                    <div className="relative">
-                      <Smartphone className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                      <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="请输入 11 位手机号" inputMode="numeric" maxLength={11} autoFocus />
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                        <Input className="pl-9" value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 位验证码" inputMode="numeric" maxLength={6} />
-                      </div>
-                      <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || countdown > 0 || !phone.trim()}>
-                        {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? `${countdown}s` : "获取验证码"}
-                      </Button>
-                    </div>
-                    {demoCode && (
-                      <div className="rounded-xl border border-dashed border-[var(--accent)]/30 bg-[var(--accent-faint)] p-3 text-sm">
-                        <div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div>
-                        <div className="mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
-                        <p className="mt-1 text-xs text-[var(--muted)]">{notice}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {error && <div className="mt-3 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning-faint)] p-2.5 text-xs text-[var(--warning)]">{error}</div>}
-                <Button variant="accent" size="lg" className="mt-4 w-full" disabled={submitting} onClick={() => void loginBuyer()}>
-                  {submitting ? <Loader2 className="size-4 animate-spin" /> : "登录并进入"}
-                </Button>
-                <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3 text-xs leading-5 text-[var(--muted)]">
-                  演示凭证：账号 <span className="font-semibold text-[var(--ink)]">admin</span> · 手机号 <span className="font-semibold text-[var(--ink)]">13800138000</span>。验证码为演示码，点击「获取验证码」直接返回。
-                </div>
-                <p className="mt-4 text-center text-xs text-[var(--muted)]">
-                  没有账号？{" "}
-                  <button onClick={goRegister} className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
-                    立即注册
-                  </button>
-                </p>
-              </>
-            )}
+    <div className="min-h-screen bg-[var(--paper)]">
+      {/* 顶部导航 */}
+      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-[rgba(247,248,250,.86)] backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-2.5">
+            <BrandMark />
+            <span className="text-lg font-bold tracking-tight">
+              链谈 <span className="text-[var(--accent)]">Agent</span>
+            </span>
+          </Link>
+          <nav className="ml-4 hidden items-center gap-6 text-sm text-[var(--muted)] md:flex">
+            <a className="transition hover:text-[var(--ink)]" href="#flow">工作流程</a>
+            <a className="transition hover:text-[var(--ink)]" href="#capability">产品能力</a>
+            <a className="transition hover:text-[var(--ink)]" href="#supplier">供应商入口</a>
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
+            <Link href="/supplier/login">
+              <Button variant="ghost" size="sm">我是供应商</Button>
+            </Link>
+            <Link href="/login">
+              <Button variant="accent" size="sm">商家登录</Button>
+            </Link>
           </div>
         </div>
-      )}
+      </header>
+
+      {/* Hero */}
+      <section className="mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 sm:pb-24 sm:pt-20">
+        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_.95fr]">
+          <div className="animate-rise">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)]">
+              <Sparkles className="size-3.5 text-[var(--accent)]" />
+              面向中小微采购商家
+            </div>
+            <h1 className="mt-6 text-4xl font-bold leading-[1.15] tracking-tight sm:text-5xl">
+              把时间留给
+              <br />
+              <span className="text-[var(--accent)]">真正值得谈</span>的供应商
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-8 text-[var(--muted)]">
+              链谈 Agent 自动接待上门的供应商，先按你的采购底线硬性筛选，再按七维权重打分分层。
+              达到标准的才提醒你接手，其余由 AI 继续议价。
+            </p>
+            <p className="mt-4 max-w-xl rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-[var(--ink)]">
+              <span className="font-semibold">核心原则：</span>
+              大模型负责理解和表达，<span className="font-semibold text-[var(--accent-strong)]">底线、评分和决策由程序完成</span>。
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link href="/register">
+                <Button variant="accent" size="lg">
+                  免费创建商家账号
+                  <ArrowRight className="size-4" />
+                </Button>
+              </Link>
+              <Link href="/login">
+                <Button variant="outline" size="lg">已有账号，直接登录</Button>
+              </Link>
+            </div>
+            <p className="mt-4 text-xs text-[var(--muted)]">
+              演示环境：注册即用，验证码为演示码，不发送真实短信。
+            </p>
+          </div>
+
+          {/* 决策卡片示意图：用真实评分维度渲染，不使用虚构数据截图 */}
+          <div className="animate-rise">
+            <Card className="overflow-hidden">
+              <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-3">
+                <span className="text-xs font-semibold text-[var(--muted)]">供应商综合评分</span>
+                <span className="rounded-full bg-[var(--success-faint)] px-2.5 py-1 text-[11px] font-semibold text-[var(--success)]">
+                  优质候选
+                </span>
+              </div>
+              <CardContent className="space-y-5 p-5">
+                <div className="flex items-end gap-2">
+                  <span className="tnum text-5xl font-bold">86</span>
+                  <span className="pb-1 text-sm text-[var(--muted)]">/ 100</span>
+                </div>
+                <div className="space-y-3">
+                  {dimensions.slice(0, 5).map((item) => (
+                    <div key={item.label}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[var(--muted)]">{item.label}</span>
+                        <span className="tnum font-semibold">{item.weight}</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--paper-deep)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent)]"
+                          style={{ width: `${(item.weight / 30) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-[var(--success-faint)] px-3 py-2.5 text-xs font-semibold text-[var(--success)]">
+                  <ShieldCheck className="size-4" />
+                  已通过采购底线 · 已提醒商家接管
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* 工作流程 */}
+      <section id="flow" className="border-y border-[var(--line)] bg-[var(--surface)]">
+        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">它替你做了什么</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
+            每一步的判断都由程序给出，AI 不参与决策，只负责把结论讲清楚。
+          </p>
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            {flow.map((item) => (
+              <Card key={item.step}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <span className="grid size-10 place-items-center rounded-[var(--radius-control)] bg-[var(--accent-faint)] text-[var(--accent)]">
+                      <item.icon className="size-5" />
+                    </span>
+                    <span className="tnum text-sm font-bold text-[var(--muted)]">{item.step}</span>
+                  </div>
+                  <h3 className="mt-5 font-bold">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-7 text-[var(--muted)]">{item.body}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 产品能力 */}
+      <section id="capability" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+        <div className="grid gap-12 lg:grid-cols-[.9fr_1.1fr]">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">决策规则写在明面上</h2>
+            <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
+              模型会理解供应商在说什么，但「给谁报价机会、给谁转人工、谁直接淘汰」由一套确定的规则计算。
+              你可以随时调整权重，结果立刻跟着变。
+            </p>
+            <div className="mt-8 rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)] p-5">
+              <div className="text-xs font-semibold text-[var(--muted)]">默认七维满分（可按商品自定义）</div>
+              <div className="mt-4 space-y-3">
+                {dimensions.map((item) => (
+                  <div key={item.label} className="flex items-center gap-3">
+                    <span className="w-24 shrink-0 text-sm">{item.label}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--paper-deep)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--accent)]"
+                        style={{ width: `${(item.weight / 30) * 100}%` }}
+                      />
+                    </div>
+                    <span className="tnum w-8 shrink-0 text-right text-sm font-semibold">{item.weight}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            {capabilities.map((item) => (
+              <Card key={item.title}>
+                <CardContent className="p-5">
+                  <span className="grid size-9 place-items-center rounded-[var(--radius-chip)] bg-[var(--paper)] text-[var(--accent)]">
+                    <item.icon className="size-4.5" />
+                  </span>
+                  <h3 className="mt-4 text-sm font-bold">{item.title}</h3>
+                  <p className="mt-2 text-xs leading-6 text-[var(--muted)]">{item.body}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 供应商入口 */}
+      <section id="supplier" className="border-y border-[var(--line)] bg-[var(--surface)]">
+        <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-14 sm:px-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-control)] bg-[var(--ink)] text-white">
+              <Building2 className="size-5" />
+            </span>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight">我是供应商，想供货</h2>
+              <p className="mt-2 max-w-xl text-sm leading-7 text-[var(--muted)]">
+                手机号登录后填写报价、起订量、账期与资质，提交前就能看到是否满足采购底线，通过后直接进入 AI 洽谈。
+              </p>
+            </div>
+          </div>
+          <Link href="/supplier/login" className="shrink-0">
+            <Button variant="accent" size="lg">
+              进入供应商入口
+              <ArrowRight className="size-4" />
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      {/* 页脚 */}
+      <footer className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+        <div className="flex flex-col gap-8 sm:flex-row sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <BrandMark />
+              <span className="font-bold tracking-tight">
+                链谈 <span className="text-[var(--accent)]">Agent</span>
+              </span>
+            </div>
+            <p className="mt-3 max-w-xs text-xs leading-6 text-[var(--muted)]">
+              面向中小微采购商家的供应商智能接待、分层谈判和筛选系统。
+            </p>
+          </div>
+          <div className="flex gap-12 text-sm">
+            <div>
+              <div className="font-semibold">产品</div>
+              <div className="mt-3 space-y-2 text-[var(--muted)]">
+                <Link className="block transition hover:text-[var(--ink)]" href="/register">创建商家账号</Link>
+                <Link className="block transition hover:text-[var(--ink)]" href="/login">商家登录</Link>
+                <Link className="block transition hover:text-[var(--ink)]" href="/supplier/login">供应商登录</Link>
+              </div>
+            </div>
+            <div>
+              <div className="font-semibold">条款</div>
+              <div className="mt-3 space-y-2 text-[var(--muted)]">
+                <Link className="block transition hover:text-[var(--ink)]" href="/terms">平台须知</Link>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-10 flex flex-col gap-2 border-t border-[var(--line)] pt-6 text-xs text-[var(--muted)] sm:flex-row sm:justify-between">
+          <span>© {new Date().getFullYear()} 链谈 Agent · 演示环境</span>
+          <span>备案号 / 联系方式待上线前补充</span>
+        </div>
+      </footer>
     </div>
   );
 }
