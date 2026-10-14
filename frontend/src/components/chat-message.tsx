@@ -67,7 +67,7 @@ export function ChatMessageItem({ message, supplierName }: { message: ChatMessag
           )}
         >
           {message.sender === "ai" && (
-            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-[#93c5fd]">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-[var(--ai-on-dark)]">
               <Bot className="size-3" />
               AI 采购助手
             </div>

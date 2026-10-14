@@ -1,22 +1,93 @@
 @import "tailwindcss";
 
+/* 设计令牌：颜色、圆角、阴影、字体统一在这里定义。
+   Tailwind v4 的 @theme 会把它们输出成 :root 上的 CSS 变量，
+   同时生成对应工具类（bg-paper / text-muted / rounded-card …）。 */
+@theme {
+  /* —— 表面与文字 —— */
+  --color-paper: #f7f8fa;          /* 页面底色 */
+  --color-paper-deep: #eef1f6;     /* 次级底色（气泡、占位块） */
+  --color-surface: #ffffff;        /* 卡片表面 */
+  --color-ink: #111827;            /* 主文字 / 深色底 */
+  --color-ink-soft: #1f2937;
+  --color-muted: #667085;          /* 次要文字 */
+  --color-line: #e4e7ec;           /* 分隔线 / 描边 */
+
+  /* —— 反色区域（侧栏、深色卡片）—— */
+  --color-surface-inverse: #111827;
+  --color-on-inverse: #ffffff;
+  --color-on-inverse-muted: rgba(255, 255, 255, .72);
+  --color-on-inverse-faint: rgba(255, 255, 255, .48);
+
+  /* —— 品牌与语义色 —— */
+  --color-accent: #1d4ed8;
+  --color-accent-strong: #1e40af;
+  --color-accent-faint: #dbeafe;
+  --color-success: #26715a;
+  --color-success-faint: #dcece5;
+  --color-warning: #9c6a17;
+  --color-warning-faint: #f4ead3;
+  --color-danger: #b23a31;
+  --color-danger-strong: #9b3028;
+  --color-danger-faint: #f5dedc;
+  --color-ring: #1d4ed8;
+
+  /* —— 深色底专用的语义色（浅色版在深底上对比度不足）—— */
+  --color-success-on-dark: #6fd3a8;
+  --color-danger-on-dark: #fca5a5;
+  --color-ai-on-dark: #93c5fd;
+
+  /* —— 其它用途 —— */
+  --color-chat-canvas: #f8fafc;    /* 会话消息区底色 */
+  --color-scrollbar: #cbd5e1;
+
+  /* —— 圆角阶梯：卡片 16 / 控件 12 / 小标签 8 —— */
+  --radius-chip: 0.5rem;
+  --radius-control: 0.75rem;
+  --radius-card: 1rem;
+
+  /* —— 阴影阶梯：常态卡片 / 浮层 —— */
+  --shadow-card: 0 1px 0 rgba(31, 41, 55, .02), 0 12px 32px rgba(31, 41, 55, .035);
+  --shadow-pop: 0 24px 48px -12px rgba(16, 24, 40, .18);
+
+  /* —— 字体：中文优先系统字体，避免下载几 MB 的中文字库 —— */
+  --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+}
+
+/* 兼容别名：既有代码大量使用 bg-[var(--paper)] / text-[var(--muted)] 这类写法，
+   保留同名变量以免一次性重写数百处；新代码可直接用 bg-paper / text-muted。 */
 :root {
-  --paper: #f7f8fa;
-  --paper-deep: #eef1f6;
-  --ink: #111827;
-  --ink-soft: #1f2937;
-  --muted: #667085;
-  --line: #e4e7ec;
-  --accent: #1d4ed8;
-  --accent-strong: #1e40af;
-  --accent-faint: #dbeafe;
-  --success: #26715a;
-  --success-faint: #dcece5;
-  --warning: #9c6a17;
-  --warning-faint: #f4ead3;
-  --danger: #b23a31;
-  --danger-faint: #f5dedc;
-  --ring: #1d4ed8;
+  --paper: var(--color-paper);
+  --paper-deep: var(--color-paper-deep);
+  --surface: var(--color-surface);
+  --ink: var(--color-ink);
+  --ink-soft: var(--color-ink-soft);
+  --muted: var(--color-muted);
+  --line: var(--color-line);
+  --surface-inverse: var(--color-surface-inverse);
+  --on-inverse: var(--color-on-inverse);
+  --on-inverse-muted: var(--color-on-inverse-muted);
+  --on-inverse-faint: var(--color-on-inverse-faint);
+  --accent: var(--color-accent);
+  --accent-strong: var(--color-accent-strong);
+  --accent-faint: var(--color-accent-faint);
+  --success: var(--color-success);
+  --success-faint: var(--color-success-faint);
+  --warning: var(--color-warning);
+  --warning-faint: var(--color-warning-faint);
+  --danger: var(--color-danger);
+  --danger-faint: var(--color-danger-faint);
+  --ring: var(--color-ring);
+  --success-on-dark: var(--color-success-on-dark);
+  --danger-on-dark: var(--color-danger-on-dark);
+  --ai-on-dark: var(--color-ai-on-dark);
+  --chat-canvas: var(--color-chat-canvas);
+  --scrollbar: var(--color-scrollbar);
+  --radius-chip: 0.5rem;
+  --radius-control: 0.75rem;
+  --radius-card: 1rem;
+  --shadow-card: 0 1px 0 rgba(31, 41, 55, .02), 0 12px 32px rgba(31, 41, 55, .035);
+  --shadow-pop: 0 24px 48px -12px rgba(16, 24, 40, .18);
 }
 
 * { box-sizing: border-box; }
@@ -25,11 +96,15 @@ body {
   margin: 0;
   background: radial-gradient(circle at 95% 0%, rgba(29, 78, 216, .08), transparent 26rem), var(--paper);
   color: var(--ink);
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Arial, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 ::selection { background: var(--accent-faint); color: var(--ink); }
+
+/* 金额、分数、统计数字统一用等宽数字，避免逐帧变化时宽度抖动。 */
+.tnum { font-variant-numeric: tabular-nums; }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(8px); }
@@ -41,4 +116,4 @@ button { cursor: pointer; }
   background-size: 10px 10px;
 }
 .thin-scrollbar::-webkit-scrollbar { width: 5px; }
-.thin-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+.thin-scrollbar::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 999px; }

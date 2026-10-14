@@ -335,7 +335,7 @@ function SupplierChatContent() {
         <div
           ref={messageViewportRef}
           onScroll={handleMessageScroll}
-          className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f8fafc] p-4 sm:p-6"
+          className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[var(--chat-canvas)] p-4 sm:p-6"
         >
           <div ref={messageContentRef} className="flex min-h-full flex-col gap-5">
           {hasOlderMessages && (
