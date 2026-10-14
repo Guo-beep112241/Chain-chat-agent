@@ -5,6 +5,7 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -63,7 +64,12 @@ export default function NegotiatePage() {
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(MESSAGE_PAGE_SIZE);
   const messageViewportRef = useRef<HTMLDivElement>(null);
+  const messageContentRef = useRef<HTMLDivElement>(null);
   const previousScrollHeightRef = useRef<number | null>(null);
+  // 是否跟随最新消息。用户向上翻阅历史时置为 false，避免被自动滚动打断。
+  const stickToBottomRef = useRef(true);
+  // 标记「这次滚动是程序贴底造成的」，避免它被误判成用户向上翻阅。
+  const programmaticScrollRef = useRef(false);
   const active = useMemo(
     () => sessions.find((item) => item.id === selectedId) ?? null,
     [sessions, selectedId],
@@ -73,15 +79,32 @@ export default function NegotiatePage() {
     active && visibleMessageCount < active.messages.length,
   );
 
-  useEffect(() => {
-    setVisibleMessageCount(MESSAGE_PAGE_SIZE);
-    requestAnimationFrame(() => {
-      const viewport = messageViewportRef.current;
-      if (viewport) viewport.scrollTop = viewport.scrollHeight;
-    });
-  }, [selectedId]);
+  const pinToBottom = useCallback(() => {
+    const viewport = messageViewportRef.current;
+    if (!viewport) return;
+    programmaticScrollRef.current = true;
+    viewport.scrollTop = viewport.scrollHeight;
+  }, []);
 
-  useEffect(() => {
+  // 切换会话：重置分页、恢复跟随状态，并连续若干帧贴底。
+  // 只贴一次是不够的——消息区高度要等字体、换行、图片定型后才稳定，
+  // 实测只贴一次会停在对话中部（约 450px 处），永远看不到最新几条。
+  useLayoutEffect(() => {
+    setVisibleMessageCount(MESSAGE_PAGE_SIZE);
+    stickToBottomRef.current = true;
+    const viewport = messageViewportRef.current;
+    if (!viewport) return;
+    let frames = 0;
+    let raf = 0;
+    const tick = () => {
+      pinToBottom();
+      if (++frames < 12) raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [selectedId, pinToBottom]);
+
+  useLayoutEffect(() => {
     const viewport = messageViewportRef.current;
     if (previousScrollHeightRef.current !== null && viewport) {
       viewport.scrollTop +=
@@ -90,12 +113,21 @@ export default function NegotiatePage() {
     }
   }, [visibleMessageCount]);
 
+  // 新增消息时跟随最新一条。
+  useLayoutEffect(() => {
+    if (stickToBottomRef.current) pinToBottom();
+  }, [active?.messages.length, pinToBottom]);
+
+  // 内容高度可能在上述帧之后才变化（字体、图片、异步刷新），用 ResizeObserver 继续跟随。
   useEffect(() => {
-    requestAnimationFrame(() => {
-      const viewport = messageViewportRef.current;
-      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    const content = messageContentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottomRef.current) pinToBottom();
     });
-  }, [active?.messages.length]);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [pinToBottom, selectedId]);
 
   function loadOlderMessages() {
     if (!active || !hasOlderMessages) return;
@@ -108,7 +140,16 @@ export default function NegotiatePage() {
 
   function handleMessageScroll() {
     const viewport = messageViewportRef.current;
-    if (viewport && viewport.scrollTop < 48) loadOlderMessages();
+    if (!viewport) return;
+    if (programmaticScrollRef.current) {
+      // 这次滚动是程序贴底造成的，不代表用户向上翻阅。
+      programmaticScrollRef.current = false;
+      return;
+    }
+    // 距底部 80px 以内视为「正在跟随最新消息」。
+    stickToBottomRef.current =
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+    if (viewport.scrollTop < 48) loadOlderMessages();
   }
 
   const load = useCallback(async (preferredId?: number | null) => {
@@ -399,8 +440,9 @@ export default function NegotiatePage() {
           <div
             ref={messageViewportRef}
             onScroll={handleMessageScroll}
-            className="thin-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-[#f8fafc] p-4 sm:p-6"
+            className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f8fafc] p-4 sm:p-6"
           >
+            <div ref={messageContentRef} className="flex min-h-full flex-col gap-5">
             {hasOlderMessages && (
               <button
                 type="button"
@@ -419,13 +461,14 @@ export default function NegotiatePage() {
                 />
               ))
             ) : (
-              <div className="grid h-full place-items-center text-center text-sm text-[var(--muted)]">
+              <div className="grid flex-1 place-items-center text-center text-sm text-[var(--muted)]">
                 <div>
                   <Inbox className="mx-auto mb-3 size-8" />
                   会话已创建，尚无沟通消息
                 </div>
               </div>
             )}
+            </div>
           </div>
           <form
             onSubmit={send}
