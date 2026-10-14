@@ -4,6 +4,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -15,9 +16,9 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
-from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
+from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
 from app.seed import seed_demo_data, seed_merchant_account
-from app.security import authorize_negotiation, check_code, hash_password, issue_code, require_admin, require_buyer, require_supplier, validate_password, verify_password
+from app.security import authorize_negotiation, check_code, hash_password, issue_code, require_buyer, require_merchant, require_supplier, validate_password, verify_password
 from app.services.llm import FALLBACK_REPLY, generate_boundary_recovery_reply, generate_negotiation_reply, generate_negotiation_turn, generate_opening_message
 from app.services.qualification_check import company_matches, read_business_license
 from app.services.rules import enforce_hard_rules
@@ -38,9 +39,11 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     _patch_sqlite_columns(engine)
+    _drop_products_name_unique_index(engine)
     with SessionLocal() as db:
-        seed_demo_data(db)
-        seed_merchant_account(db)
+        merchant = seed_merchant_account(db)
+        _backfill_merchant_ids(db, merchant.id)
+        seed_demo_data(db, merchant.id)
     yield
 
 
@@ -65,7 +68,11 @@ def _patch_sqlite_columns(engine) -> None:
         "merchant_accounts": (
             ("account", "VARCHAR(80) DEFAULT ''"),
             ("phone", "VARCHAR(40) DEFAULT ''"),
+            ("email", "VARCHAR(160) DEFAULT ''"),
         ),
+        "products": (("merchant_id", "INTEGER"),),
+        "suppliers": (("merchant_id", "INTEGER"),),
+        "negotiations": (("merchant_id", "INTEGER"),),
     }
     with engine.begin() as conn:
         for table, columns_spec in patches.items():
@@ -73,6 +80,23 @@ def _patch_sqlite_columns(engine) -> None:
             for name, ddl in columns_spec:
                 if name not in existing:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def _drop_products_name_unique_index(engine) -> None:
+    """多商家下商品名改为「商家内唯一」：删除旧库全局唯一索引，重建为普通索引（仅 SQLite）。"""
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DROP INDEX IF EXISTS ix_products_name")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)")
+
+
+def _backfill_merchant_ids(db: Session, merchant_id: int) -> None:
+    """把旧库中 merchant_id 为空的历史数据全部挂到默认商家下，保证升级后仍可见。"""
+    for model in (Product, Supplier, Negotiation):
+        for row in db.scalars(select(model).where(model.merchant_id.is_(None))).all():
+            row.merchant_id = merchant_id
+    db.commit()
 
 
 settings = get_settings()
@@ -208,19 +232,46 @@ def merchant_profile_out(account: MerchantAccount) -> dict:
     }
 
 
-def get_merchant_account(db: Session) -> MerchantAccount:
-    account = db.scalar(select(MerchantAccount).order_by(MerchantAccount.id).limit(1))
-    if account is None:
-        raise HTTPException(status_code=500, detail="商家账号未初始化")
-    return account
+def get_merchant_by_phone(db: Session, phone: str) -> MerchantAccount | None:
+    return db.scalar(select(MerchantAccount).where(MerchantAccount.phone == phone))
+
+
+@app.post("/api/auth/merchant/register", response_model=MerchantTokenOut, status_code=201)
+def merchant_register(payload: MerchantRegisterIn, db: Session = Depends(get_db)):
+    """注册新商家（注册即登录）：账号/手机号/邮箱全局唯一，密码复用原规则，须知必须勾选。"""
+    if not payload.agree_terms:
+        raise HTTPException(status_code=422, detail="请先阅读并同意平台须知")
+    if error := validate_password(payload.password):
+        raise HTTPException(status_code=422, detail=error)
+    account_name = payload.account.strip()
+    phone = payload.phone.strip()
+    email = payload.email.strip()
+    if db.scalar(select(MerchantAccount.id).where(MerchantAccount.account == account_name)):
+        raise HTTPException(status_code=409, detail="该账号已被注册")
+    if db.scalar(select(MerchantAccount.id).where(MerchantAccount.phone == phone)):
+        raise HTTPException(status_code=409, detail="该手机号已被绑定")
+    if db.scalar(select(MerchantAccount.id).where(MerchantAccount.email == email)):
+        raise HTTPException(status_code=409, detail="该邮箱已被绑定")
+    account = MerchantAccount(
+        store_name=payload.store_name.strip(),
+        account=account_name,
+        phone=phone,
+        email=email,
+        password_hash=hash_password(payload.password),
+        access_token=secrets.token_urlsafe(32),
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return {**merchant_profile_out(account), "access_token": account.access_token}
 
 
 @app.post("/api/auth/merchant/request-code", response_model=MerchantCodeOut)
 def request_merchant_code(payload: MerchantCodeRequest, db: Session = Depends(get_db)):
-    account = get_merchant_account(db)
-    if not account.phone or account.phone != payload.phone.strip():
-        raise HTTPException(status_code=404, detail="该手机号未绑定采购方账号")
     phone = payload.phone.strip()
+    account = get_merchant_by_phone(db, phone)
+    if account is None:
+        raise HTTPException(status_code=404, detail="该手机号未绑定采购方账号")
     code = issue_code(phone)
     # 演示模式：验证码不发送短信，直接返回前端并打印到日志。
     print(f"[演示验证码] 采购方手机号 {phone} 的登录验证码为：{code}")
@@ -229,10 +280,11 @@ def request_merchant_code(payload: MerchantCodeRequest, db: Session = Depends(ge
 
 @app.post("/api/auth/merchant/login-code", response_model=MerchantTokenOut)
 def merchant_code_login(payload: MerchantCodeLoginIn, db: Session = Depends(get_db)):
-    account = get_merchant_account(db)
-    if not account.phone or account.phone != payload.phone.strip():
+    phone = payload.phone.strip()
+    account = get_merchant_by_phone(db, phone)
+    if account is None:
         raise HTTPException(status_code=401, detail="手机号未绑定采购方账号")
-    if not check_code(payload.phone.strip(), payload.code):
+    if not check_code(phone, payload.code):
         raise HTTPException(status_code=401, detail="验证码错误或已过期")
     account.access_token = secrets.token_urlsafe(32)
     db.commit()
@@ -344,24 +396,39 @@ async def upload_qualification_file(
     return row
 
 
+def qualification_file_belongs_to_merchant(db: Session, row: QualificationFile, merchant_id: int) -> bool:
+    if row.supplier_id is None:
+        return False
+    supplier = db.get(Supplier, row.supplier_id)
+    return supplier is not None and supplier.merchant_id == merchant_id
+
+
 @app.get("/api/uploads/{file_id}")
-def download_qualification_file(file_id: str, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def download_qualification_file(file_id: str, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     row = db.get(QualificationFile, file_id)
     if row is None:
         raise HTTPException(status_code=404, detail="资质文件不存在")
+    if not qualification_file_belongs_to_merchant(db, row, merchant.id):
+        raise HTTPException(status_code=404, detail="资质文件不存在")
     if not row.data:
         raise HTTPException(status_code=404, detail="文件已丢失，请联系供应商重新上传")
+    # 中文等非 latin-1 文件名会导致响应头编码失败，用 RFC 5987 的 filename* 安全编码。
+    clean_name = (row.original_name or "file").replace('"', "")
+    fallback = clean_name.encode("ascii", "ignore").decode("ascii") or "file"
+    disposition = f'inline; filename="{fallback}"; filename*=UTF-8\'\'{quote(clean_name)}'
     return Response(
         content=row.data,
         media_type=row.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{row.original_name}"'},
+        headers={"Content-Disposition": disposition},
     )
 
 
 @app.post("/api/qualification-files/{file_id}/verify", response_model=QualificationFileOut)
-def toggle_qualification_verified(file_id: str, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def toggle_qualification_verified(file_id: str, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     row = db.get(QualificationFile, file_id)
     if row is None:
+        raise HTTPException(status_code=404, detail="资质文件不存在")
+    if not qualification_file_belongs_to_merchant(db, row, merchant.id):
         raise HTTPException(status_code=404, detail="资质文件不存在")
     row.verified = not row.verified
     db.commit()
@@ -466,8 +533,8 @@ def ml_evaluate_endpoint():
 
 
 @app.get("/api/products", response_model=list[ProductOut])
-def list_products(db: Session = Depends(get_db)):
-    return db.scalars(select(Product).where(Product.active.is_(True)).order_by(Product.id)).all()
+def list_products(db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
+    return db.scalars(select(Product).where(Product.merchant_id == merchant.id, Product.active.is_(True)).order_by(Product.id)).all()
 
 
 def product_manage_out(product: Product, rule: ProcurementRule) -> ProductManageOut:
@@ -485,9 +552,10 @@ def product_manage_out(product: Product, rule: ProcurementRule) -> ProductManage
 
 
 @app.get("/api/products/manage", response_model=list[ProductManageOut])
-def manage_products(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
-    products = db.scalars(select(Product).order_by(Product.id)).all()
-    rules = {r.product_id: r for r in db.scalars(select(ProcurementRule)).all()}
+def manage_products(db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
+    products = db.scalars(select(Product).where(Product.merchant_id == merchant.id).order_by(Product.id)).all()
+    product_ids = [p.id for p in products]
+    rules = {r.product_id: r for r in db.scalars(select(ProcurementRule).where(ProcurementRule.product_id.in_(product_ids))).all()} if product_ids else {}
     return [product_manage_out(p, rules[p.id]) for p in products if p.id in rules]
 
 
@@ -499,12 +567,12 @@ def product_catalog(db: Session = Depends(get_db), _supplier: SupplierAuth = Dep
 
 
 @app.post("/api/products", response_model=ProductManageOut, status_code=201)
-def create_product(payload: ProductCreate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def create_product(payload: ProductCreate, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     if payload.hard_max_price < payload.target_price:
         raise HTTPException(status_code=422, detail="硬性价格上限不能低于目标价")
-    if db.scalar(select(Product).where(Product.name == payload.name.strip())):
+    if db.scalar(select(Product).where(Product.merchant_id == merchant.id, Product.name == payload.name.strip())):
         raise HTTPException(status_code=409, detail="商品名称已存在")
-    product = Product(name=payload.name.strip(), category=payload.category.strip(), description=payload.description.strip(), active=True)
+    product = Product(merchant_id=merchant.id, name=payload.name.strip(), category=payload.category.strip(), description=payload.description.strip(), active=True)
     db.add(product)
     db.flush()
     rule_data = payload.model_dump(exclude={"name", "category", "description"})
@@ -516,12 +584,12 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db), _admin
 
 
 @app.put("/api/products/{product_id}", response_model=ProductManageOut)
-def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     product = db.get(Product, product_id)
     rule = db.scalar(select(ProcurementRule).where(ProcurementRule.product_id == product_id))
-    if product is None or rule is None:
+    if product is None or rule is None or product.merchant_id != merchant.id:
         raise HTTPException(status_code=404, detail="商品不存在")
-    duplicate = db.scalar(select(Product).where(Product.name == payload.name.strip(), Product.id != product_id))
+    duplicate = db.scalar(select(Product).where(Product.merchant_id == merchant.id, Product.name == payload.name.strip(), Product.id != product_id))
     if duplicate:
         raise HTTPException(status_code=409, detail="商品名称已存在")
     if payload.hard_max_price < payload.target_price:
@@ -535,10 +603,10 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
 
 
 @app.delete("/api/products/{product_id}")
-def disable_product(product_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def disable_product(product_id: int, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     product = db.get(Product, product_id)
     rule = db.scalar(select(ProcurementRule).where(ProcurementRule.product_id == product_id))
-    if product is None:
+    if product is None or product.merchant_id != merchant.id:
         raise HTTPException(status_code=404, detail="商品不存在")
     product.active = False
     if rule: rule.active = False
@@ -547,8 +615,8 @@ def disable_product(product_id: int, db: Session = Depends(get_db), _admin: str 
 
 
 @app.get("/api/dashboard/summary", response_model=DashboardSummary)
-def dashboard_summary(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
-    negotiations = db.scalars(select(Negotiation).options(selectinload(Negotiation.supplier), selectinload(Negotiation.product), selectinload(Negotiation.messages)).order_by(Negotiation.updated_at.desc())).all()
+def dashboard_summary(db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
+    negotiations = db.scalars(select(Negotiation).where(Negotiation.merchant_id == merchant.id).options(selectinload(Negotiation.supplier), selectinload(Negotiation.product), selectinload(Negotiation.messages)).order_by(Negotiation.updated_at.desc())).all()
     today = datetime.utcnow().date()
     items = [DashboardItem(id=n.id, supplier=n.supplier.company_name, product=n.product.name, score=n.score, price=n.quoted_price, moq=n.moq, status=n.status, classification=n.classification, is_today=n.created_at.date() == today) for n in negotiations]
     automated_messages = sum(1 for n in negotiations for m in n.messages if m.sender == "ai")
@@ -562,7 +630,10 @@ def dashboard_summary(db: Session = Depends(get_db), _admin: str = Depends(requi
 
 
 @app.get("/api/rules/{product_id}", response_model=RuleOut)
-def get_rule(product_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def get_rule(product_id: int, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
+    product = db.get(Product, product_id)
+    if product is None or product.merchant_id != merchant.id:
+        raise HTTPException(status_code=404, detail="未找到该商品的采购规则")
     rule = db.scalar(select(ProcurementRule).where(ProcurementRule.product_id == product_id, ProcurementRule.active.is_(True)))
     if rule is None:
         raise HTTPException(status_code=404, detail="未找到该商品的采购规则")
@@ -570,9 +641,12 @@ def get_rule(product_id: int, db: Session = Depends(get_db), _admin: str = Depen
 
 
 @app.put("/api/rules/{product_id}", response_model=RuleOut)
-def update_rule(product_id: int, payload: RuleUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def update_rule(product_id: int, payload: RuleUpdate, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     if payload.hard_max_price < payload.target_price:
         raise HTTPException(status_code=422, detail="硬性价格上限不能低于目标价")
+    product = db.get(Product, product_id)
+    if product is None or product.merchant_id != merchant.id:
+        raise HTTPException(status_code=404, detail="采购规则不存在")
     rule = db.scalar(select(ProcurementRule).where(ProcurementRule.product_id == product_id))
     if rule is None:
         raise HTTPException(status_code=404, detail="采购规则不存在")
@@ -592,7 +666,9 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
     if payload.qualifications and not payload.qualification_file_ids:
         raise HTTPException(status_code=422, detail="已勾选资质，请至少上传一份资质文件供人工核验")
     hard, scored, classification, action = evaluate_offer(rule, payload)
+    merchant_id = rule.product.merchant_id
     supplier = Supplier(
+        merchant_id=merchant_id,
         company_name=payload.company_name,
         contact_name=payload.contact_name,
         phone=payload.phone,
@@ -613,6 +689,7 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
     # “当前方案淘汰”不等于“会话结束”：未通过底线时仍允许 AI 继续争取合规方案。
     status = "ai_active"
     negotiation = Negotiation(
+        merchant_id=merchant_id,
         product_id=payload.product_id,
         supplier_id=supplier.id,
         quoted_price=payload.quoted_price,
@@ -662,25 +739,26 @@ async def evaluate_supplier(payload: SupplierOfferIn, db: Session = Depends(get_
 
 
 @app.get("/api/negotiations", response_model=list[NegotiationOut])
-def list_negotiations(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
-    return db.scalars(select(Negotiation).options(selectinload(Negotiation.messages), selectinload(Negotiation.supplier).selectinload(Supplier.qualification_files), selectinload(Negotiation.product)).order_by(Negotiation.updated_at.desc())).all()
+def list_negotiations(db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
+    return db.scalars(select(Negotiation).where(Negotiation.merchant_id == merchant.id).options(selectinload(Negotiation.messages), selectinload(Negotiation.supplier).selectinload(Supplier.qualification_files), selectinload(Negotiation.product)).order_by(Negotiation.updated_at.desc())).all()
 
 
 @app.get("/api/negotiations/stream")
-async def stream_negotiations(_admin: str = Depends(require_admin)):
-    """商家侧全局实时通道：任一会话出现新消息、状态 / 评分 / 分类变化即推送一次事件。
+async def stream_negotiations(merchant: MerchantAccount = Depends(require_merchant)):
+    """商家侧实时通道：任一会话出现新消息、状态 / 评分 / 分类变化即推送一次事件（仅当前商家）。
 
     签名用「会话数 + 消息总数」即可覆盖所有会改变界面的操作：新供应商提交会新增会话，
     供应商发言、AI 回复、接管 / 恢复 / 人工回复都会新增消息，因此任何值得刷新的事件都会
     使消息总数增长。前端收到 event: change 后自行重新拉取，不依赖具体字段。
     """
+    merchant_id = merchant.id
 
     async def events():
         last_signature = None
         for _ in range(900):  # 约 30 分钟，之后由前端自动重连
             with SessionLocal() as db:
-                negotiations = db.scalar(select(func.count(Negotiation.id))) or 0
-                messages = db.scalar(select(func.count(Message.id))) or 0
+                negotiations = db.scalar(select(func.count(Negotiation.id)).where(Negotiation.merchant_id == merchant_id)) or 0
+                messages = db.scalar(select(func.count(Message.id)).join(Negotiation, Message.negotiation_id == Negotiation.id).where(Negotiation.merchant_id == merchant_id)) or 0
                 signature = (negotiations, messages)
             if signature != last_signature:
                 yield f"event: change\ndata: {json.dumps({'negotiations': signature[0], 'messages': signature[1]}, ensure_ascii=False)}\n\n"
@@ -695,14 +773,14 @@ async def stream_negotiations(_admin: str = Depends(require_admin)):
 @app.get("/api/negotiations/{negotiation_id}", response_model=NegotiationOut)
 def get_negotiation(negotiation_id: int, db: Session = Depends(get_db), authorization: str | None = Header(default=None)):
     negotiation = get_negotiation_or_404(db, negotiation_id)
-    authorize_negotiation(db, negotiation.supplier.phone, authorization)
+    authorize_negotiation(db, negotiation.supplier.phone, negotiation.merchant_id, authorization)
     return negotiation
 
 
 @app.post("/api/negotiations/{negotiation_id}/messages", response_model=ChatOut)
 async def post_supplier_message(negotiation_id: int, payload: ChatIn, db: Session = Depends(get_db), authorization: str | None = Header(default=None)):
     negotiation = get_negotiation_or_404(db, negotiation_id)
-    authorize_negotiation(db, negotiation.supplier.phone, authorization)
+    authorize_negotiation(db, negotiation.supplier.phone, negotiation.merchant_id, authorization)
     history = [
         {"role": "user" if m.sender == "supplier" else "assistant", "content": m.content}
         for m in negotiation.messages
@@ -847,8 +925,10 @@ async def post_supplier_message(negotiation_id: int, payload: ChatIn, db: Sessio
 
 
 @app.post("/api/negotiations/{negotiation_id}/handoff", response_model=NegotiationOut)
-def handoff_to_human(negotiation_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def handoff_to_human(negotiation_id: int, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     negotiation = get_negotiation_or_404(db, negotiation_id)
+    if negotiation.merchant_id != merchant.id:
+        raise HTTPException(status_code=404, detail="谈判记录不存在")
     if negotiation.classification == "eliminated":
         raise HTTPException(status_code=409, detail="已淘汰供应商不可转入人工洽谈")
     negotiation.status = "human_active"
@@ -858,8 +938,10 @@ def handoff_to_human(negotiation_id: int, db: Session = Depends(get_db), _admin:
 
 
 @app.post("/api/negotiations/{negotiation_id}/human-messages", response_model=NegotiationOut)
-def post_human_message(negotiation_id: int, payload: ChatIn, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def post_human_message(negotiation_id: int, payload: ChatIn, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     negotiation = get_negotiation_or_404(db, negotiation_id)
+    if negotiation.merchant_id != merchant.id:
+        raise HTTPException(status_code=404, detail="谈判记录不存在")
     if negotiation.classification == "eliminated":
         raise HTTPException(status_code=409, detail="已淘汰供应商不可继续洽谈")
     negotiation.status = "human_active"
@@ -869,8 +951,10 @@ def post_human_message(negotiation_id: int, payload: ChatIn, db: Session = Depen
 
 
 @app.post("/api/negotiations/{negotiation_id}/resume-ai", response_model=NegotiationOut)
-def resume_ai(negotiation_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+def resume_ai(negotiation_id: int, db: Session = Depends(get_db), merchant: MerchantAccount = Depends(require_merchant)):
     negotiation = get_negotiation_or_404(db, negotiation_id)
+    if negotiation.merchant_id != merchant.id:
+        raise HTTPException(status_code=404, detail="谈判记录不存在")
     if negotiation.classification == "eliminated":
         raise HTTPException(status_code=409, detail="已淘汰供应商不能恢复谈判")
     negotiation.status = "ai_active"
@@ -880,13 +964,15 @@ def resume_ai(negotiation_id: int, db: Session = Depends(get_db), _admin: str = 
 
 
 @app.get("/api/negotiations/{negotiation_id}/stream")
-async def stream_negotiation(negotiation_id: int, _admin: str = Depends(require_admin)):
+async def stream_negotiation(negotiation_id: int, merchant: MerchantAccount = Depends(require_merchant)):
+    merchant_id = merchant.id
+
     async def events():
         last_signature = None
         for _ in range(900):
             with SessionLocal() as db:
                 negotiation = db.get(Negotiation, negotiation_id)
-                if negotiation is None:
+                if negotiation is None or negotiation.merchant_id != merchant_id:
                     yield "event: error\ndata: {\"detail\": \"谈判记录不存在\"}\n\n"
                     return
                 snapshot = {"id": negotiation.id, "status": negotiation.status, "score": negotiation.score, "classification": negotiation.classification}

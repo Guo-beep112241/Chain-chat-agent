@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Literal
 
@@ -249,6 +250,23 @@ class MerchantCodeOut(BaseModel):
     phone: str
     code: str
     expires_in: int
+
+
+class MerchantRegisterIn(BaseModel):
+    account: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_]+$")
+    password: str = Field(min_length=1, max_length=200)
+    store_name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=11, max_length=11, pattern=r"^\d{11}$")
+    email: str = Field(min_length=3, max_length=160)
+    agree_terms: bool
+
+    @field_validator("email")
+    @classmethod
+    def _check_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("邮箱格式不正确")
+        return value
 
 
 class MerchantPasswordIn(BaseModel):

@@ -107,6 +107,27 @@ def require_buyer(db: Session = Depends(get_db), authorization: str | None = Hea
     return account
 
 
+def require_merchant(db: Session = Depends(get_db), authorization: str | None = Header(default=None)) -> MerchantAccount:
+    """商家数据鉴权：返回当前商家账号行，用于按 merchant_id 隔离数据。
+
+    兼容两种令牌：商家登录后的 access_token（返回该商家）；环境 admin_token（网页调试），
+    映射到默认商家（按 id 取第一行），保证本地调试入口仍可用。
+    """
+    token = _extract_bearer(authorization)
+    if not token:
+        raise HTTPException(status_code=401, detail="请先登录采购方账号")
+    expected = get_settings().admin_token
+    if expected and token == expected:
+        account = db.scalar(select(MerchantAccount).order_by(MerchantAccount.id).limit(1))
+        if account is not None:
+            return account
+        raise HTTPException(status_code=401, detail="商家账号未初始化")
+    account = db.scalar(select(MerchantAccount).where(MerchantAccount.access_token == token))
+    if account is None:
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
+    return account
+
+
 def require_supplier(db: Session = Depends(get_db), authorization: str | None = Header(default=None)) -> SupplierAuth:
     token = _extract_bearer(authorization)
     if not token:
@@ -117,8 +138,8 @@ def require_supplier(db: Session = Depends(get_db), authorization: str | None = 
     return auth
 
 
-def authorize_negotiation(db: Session, phone: str | None, authorization: str | None) -> None:
-    """允许管理员令牌，或该会话所属供应商（phone 匹配）访问，否则 401。"""
+def authorize_negotiation(db: Session, phone: str | None, merchant_id: int | None, authorization: str | None) -> None:
+    """允许该会话所属供应商（phone 匹配）、所属商家，或管理员令牌访问，否则 401。"""
     token = _extract_bearer(authorization)
     expected = get_settings().admin_token
     if expected and token == expected:
@@ -126,5 +147,9 @@ def authorize_negotiation(db: Session, phone: str | None, authorization: str | N
     if token and phone:
         auth = db.scalar(select(SupplierAuth).where(SupplierAuth.access_token == token))
         if auth is not None and auth.phone == phone:
+            return
+    if token and merchant_id is not None:
+        account = db.scalar(select(MerchantAccount).where(MerchantAccount.access_token == token))
+        if account is not None and account.id == merchant_id:
             return
     raise HTTPException(status_code=401, detail="无权访问该谈判会话")

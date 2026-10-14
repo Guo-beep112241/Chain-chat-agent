@@ -83,6 +83,14 @@ export type SupplierToken = { access_token: string; phone: string };
 export type MerchantProfile = { store_name: string; logo_emoji: string; logo_image: string; contact: string; category: string };
 export type MerchantToken = MerchantProfile & { access_token: string };
 export type MerchantCode = { phone: string; code: string; expires_in: number };
+export type RegisterPayload = {
+  account: string;
+  password: string;
+  store_name: string;
+  phone: string;
+  email: string;
+  agree_terms: boolean;
+};
 export type EvaluationDataset = { key: string; label: string; filename: string; exists: boolean; count: number; size_bytes: number };
 export type RuleEvaluationCase = { case_id: string; group: string; supplier: string; product: string; expected: string; actual: string; matched: boolean; score: number; reasons: string[] };
 export type RuleEvaluationResult = {
@@ -140,6 +148,9 @@ export function requestMerchantCode(phone: string) {
 export function merchantCodeLogin(phone: string, code: string) {
   return request<MerchantToken>("/api/auth/merchant/login-code", { method: "POST", body: JSON.stringify({ phone, code }) });
 }
+export function merchantRegister(payload: RegisterPayload) {
+  return request<MerchantToken>("/api/auth/merchant/register", { method: "POST", body: JSON.stringify(payload) });
+}
 export function merchantLogout() {
   return request<{ ok: boolean }>("/api/auth/merchant/logout", { method: "POST" }, "admin");
 }
@@ -168,7 +179,8 @@ export function uploadQualificationFile(file: File, companyName: string) {
   return request<QualificationFile>("/api/uploads/qualification-files", { method: "POST", body }, "supplier");
 }
 export async function openQualificationFile(fileId: string) {
-  const response = await fetch(`${API_BASE}/api/uploads/${fileId}`, { headers: { Authorization: `Bearer ${ADMIN_TOKEN}` } });
+  const token = getMerchantToken() || ADMIN_TOKEN;
+  const response = await fetch(`${API_BASE}/api/uploads/${fileId}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error("文件读取失败");
   const url = URL.createObjectURL(await response.blob());
   window.open(url, "_blank");

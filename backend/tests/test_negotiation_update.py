@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 import app.main as main_module
 from app.database import Base, get_db
 from app.main import app
-from app.seed import seed_demo_data
+from app.seed import seed_demo_data, seed_merchant_account
 from app.services.llm import NegotiationTurn, parse_negotiation_turn
 from app.services.term_extraction import extract_supplier_terms
 
@@ -62,7 +62,10 @@ def test_local_extractor_ignores_rejected_number():
 def make_client(monkeypatch, turn: NegotiationTurn) -> TestClient:
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    seed_demo_data(sessionmaker(bind=engine)())
+    session = sessionmaker(bind=engine)()
+    merchant = seed_merchant_account(session)
+    seed_demo_data(session, merchant.id)
+    session.close()
 
     def override_get_db():
         session = sessionmaker(bind=engine)()

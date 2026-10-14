@@ -57,6 +57,11 @@ export default function HomePage() {
     router.push("/supplier");
   }
 
+  function goRegister() {
+    close();
+    router.push("/register");
+  }
+
   function goDebug() {
     clearMerchantAuth();
     router.push("/dashboard");
@@ -240,6 +245,12 @@ export default function HomePage() {
                 <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3 text-[11px] leading-5 text-[var(--muted)]">
                   演示凭证：账号 <span className="font-semibold text-[var(--ink)]">admin</span> · 手机号 <span className="font-semibold text-[var(--ink)]">13800138000</span>。验证码为演示码，点击「获取验证码」直接返回。
                 </div>
+                <p className="mt-4 text-center text-xs text-[var(--muted)]">
+                  没有账号？{" "}
+                  <button onClick={goRegister} className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
+                    立即注册
+                  </button>
+                </p>
               </>
             )}
           </div>

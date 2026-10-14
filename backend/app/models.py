@@ -10,7 +10,8 @@ class Product(Base):
     __tablename__ = "products"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchant_accounts.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
     category: Mapped[str] = mapped_column(String(80), index=True)
     description: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
@@ -46,6 +47,7 @@ class Supplier(Base):
     __tablename__ = "suppliers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchant_accounts.id"), index=True)
     company_name: Mapped[str] = mapped_column(String(160), index=True)
     contact_name: Mapped[str] = mapped_column(String(80))
     phone: Mapped[str] = mapped_column(String(40))
@@ -66,6 +68,7 @@ class Negotiation(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchant_accounts.id"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"), index=True)
     quoted_price: Mapped[float] = mapped_column(Float)
@@ -126,7 +129,7 @@ class SupplierAuth(Base):
 
 
 class MerchantAccount(Base):
-    """采购方（商家）账号：单商家演示，仅一行。密码哈希 + 登录令牌 + 个人资料。"""
+    """采购方（商家）账号：多商家，每个商家一行。账号/手机号/邮箱全局唯一。"""
 
     __tablename__ = "merchant_accounts"
 
@@ -136,7 +139,8 @@ class MerchantAccount(Base):
     logo_image: Mapped[str] = mapped_column(Text, default="")
     contact: Mapped[str] = mapped_column(String(80), default="")
     category: Mapped[str] = mapped_column(String(255), default="")
-    account: Mapped[str] = mapped_column(String(80), default="", index=True)
-    phone: Mapped[str] = mapped_column(String(40), default="")
+    account: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    phone: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     access_token: Mapped[str | None] = mapped_column(String(80), nullable=True)
