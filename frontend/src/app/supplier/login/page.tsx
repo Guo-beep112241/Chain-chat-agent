@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { ArrowLeft, Building2, KeyRound, Loader2, ShieldCheck, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +18,15 @@ export default function SupplierLoginPage() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [countdown, setCountdown] = useState(0);
+
+  // 后端对同一手机号的取码限制是 60 秒 1 次，前端用倒计时对齐，
+  // 避免用户连点后撞上 429 只看到一句报错。
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   async function sendCode() {
     const trimmed = phone.trim();
@@ -25,9 +34,10 @@ export default function SupplierLoginPage() {
     setRequesting(true); setError(""); setNotice("");
     try {
       const res = await requestSupplierCode(trimmed);
-      setDemoCode(res.code);
-      setCode(res.code); // 演示模式：自动填入验证码
-      setNotice(`演示验证码已生成：${res.code}（5 分钟内有效）`);
+      setDemoCode(res.code ?? "");
+      setCode(res.code ?? ""); // 演示模式：自动填入验证码
+      setNotice(res.code ? `演示验证码已生成：${res.code}（5 分钟内有效）` : "验证码已发送，请查看短信");
+      setCountdown(60);
     } catch (e) { setError(e instanceof Error ? e.message : "获取验证码失败"); }
     finally { setRequesting(false); }
   }
@@ -81,7 +91,9 @@ export default function SupplierLoginPage() {
                   <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
                   <Input className="pl-9" value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 位验证码" inputMode="numeric" maxLength={6} />
                 </div>
-                <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || !phone.trim()}>{requesting ? <Loader2 className="size-4 animate-spin" /> : "获取验证码"}</Button>
+                <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || countdown > 0 || !phone.trim()}>
+                  {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? `${countdown}s` : "获取验证码"}
+                </Button>
               </div>
             </label>
 

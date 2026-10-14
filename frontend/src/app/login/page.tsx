@@ -74,9 +74,9 @@ export default function LoginPage() {
     setNotice("");
     try {
       const res = await requestMerchantCode(phone.trim());
-      setDemoCode(res.code);
-      setCode(res.code); // 演示模式：验证码自动填入
-      setNotice(`演示验证码已生成：${res.code}（5 分钟内有效）`);
+      setDemoCode(res.code ?? "");
+      setCode(res.code ?? ""); // 演示模式：验证码自动填入
+      setNotice(res.code ? `演示验证码已生成：${res.code}（5 分钟内有效）` : "验证码已发送，请查看短信");
       setCountdown(60);
     } catch (e) {
       setError(e instanceof Error ? e.message : "获取验证码失败");

@@ -8,13 +8,14 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
+from app.ratelimit import clear_failures, client_ip, enforce, guard, record_failure
 from app.startup_checks import validate_settings
 from app.database import Base, SessionLocal, engine, get_db
 from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
@@ -220,8 +221,11 @@ def health() -> dict:
 
 
 @app.post("/api/auth/supplier/request-code", response_model=SupplierCodeOut)
-def request_supplier_code(payload: SupplierCodeRequest):
+def request_supplier_code(payload: SupplierCodeRequest, request: Request):
     phone = payload.phone.strip()
+    # 验证码端点是最容易被刷的入口：不限流就会被用来短信轰炸或枚举手机号。
+    enforce(request, scope="otp:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
+    enforce(request, scope="otp:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
     code = issue_code(phone)
     if not settings.demo_mode:
         # 非演示模式必须真的把验证码发出去。当前没有接入短信服务商，
@@ -232,8 +236,9 @@ def request_supplier_code(payload: SupplierCodeRequest):
 
 
 @app.post("/api/auth/supplier/login", response_model=SupplierTokenOut)
-def supplier_login(payload: SupplierLoginRequest, db: Session = Depends(get_db)):
+def supplier_login(payload: SupplierLoginRequest, request: Request, db: Session = Depends(get_db)):
     phone = payload.phone.strip()
+    enforce(request, scope="login:supplier", key=client_ip(request), limit=10, window_seconds=900, message="尝试次数过多，请稍后再试")
     if not check_code(phone, payload.code):
         raise HTTPException(status_code=401, detail="验证码错误或已过期")
     auth = db.scalar(select(SupplierAuth).where(SupplierAuth.phone == phone))
@@ -263,8 +268,9 @@ def get_merchant_by_phone(db: Session, phone: str) -> MerchantAccount | None:
 
 
 @app.post("/api/auth/merchant/register", response_model=MerchantTokenOut, status_code=201)
-def merchant_register(payload: MerchantRegisterIn, db: Session = Depends(get_db)):
+def merchant_register(payload: MerchantRegisterIn, request: Request, db: Session = Depends(get_db)):
     """注册新商家（注册即登录）：账号/手机号/邮箱全局唯一，密码复用原规则，须知必须勾选。"""
+    enforce(request, scope="register:ip", key=client_ip(request), limit=5, window_seconds=3600, message="注册过于频繁，请稍后再试")
     if not payload.agree_terms:
         raise HTTPException(status_code=422, detail="请先阅读并同意平台须知")
     if error := validate_password(payload.password):
@@ -293,8 +299,10 @@ def merchant_register(payload: MerchantRegisterIn, db: Session = Depends(get_db)
 
 
 @app.post("/api/auth/merchant/request-code", response_model=MerchantCodeOut)
-def request_merchant_code(payload: MerchantCodeRequest, db: Session = Depends(get_db)):
+def request_merchant_code(payload: MerchantCodeRequest, request: Request, db: Session = Depends(get_db)):
     phone = payload.phone.strip()
+    enforce(request, scope="otp:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
+    enforce(request, scope="otp:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
     account = get_merchant_by_phone(db, phone)
     if account is None:
         raise HTTPException(status_code=404, detail="该手机号未绑定采购方账号")
@@ -306,8 +314,9 @@ def request_merchant_code(payload: MerchantCodeRequest, db: Session = Depends(ge
 
 
 @app.post("/api/auth/merchant/login-code", response_model=MerchantTokenOut)
-def merchant_code_login(payload: MerchantCodeLoginIn, db: Session = Depends(get_db)):
+def merchant_code_login(payload: MerchantCodeLoginIn, request: Request, db: Session = Depends(get_db)):
     phone = payload.phone.strip()
+    enforce(request, scope="login:merchant", key=client_ip(request), limit=10, window_seconds=900, message="尝试次数过多，请稍后再试")
     account = get_merchant_by_phone(db, phone)
     if account is None:
         raise HTTPException(status_code=401, detail="手机号未绑定采购方账号")
@@ -320,10 +329,21 @@ def merchant_code_login(payload: MerchantCodeLoginIn, db: Session = Depends(get_
 
 
 @app.post("/api/auth/merchant/login", response_model=MerchantTokenOut)
-def merchant_login(payload: MerchantPasswordLoginIn, db: Session = Depends(get_db)):
+def merchant_login(payload: MerchantPasswordLoginIn, request: Request, db: Session = Depends(get_db)):
+    # PBKDF2 校验约 100ms，不限流即可被高频在线爆破。
+    # 只把失败计入额度：成功的登录不该消耗次数，否则用户正常登录 5 次就被自己锁住了。
+    attempt_key = guard(
+        scope="login:merchant:pw",
+        key=f"{client_ip(request)}:{payload.account.strip().lower()}",
+        limit=5,
+        window_seconds=900,
+        message="账号或密码错误次数过多，请 15 分钟后再试",
+    )
     account = db.scalar(select(MerchantAccount).where(MerchantAccount.account == payload.account.strip()))
     if account is None or not account.password_hash or not verify_password(payload.password, account.password_hash):
+        record_failure(attempt_key)
         raise HTTPException(status_code=401, detail="账号或密码错误")
+    clear_failures(attempt_key)
     account.access_token = issue_token()
     db.commit()
     db.refresh(account)

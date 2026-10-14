@@ -87,11 +87,11 @@ export type Negotiation = {
 export type SupplierReply = {
   negotiation_id: number; status: string; assistant_message: string | null; handoff_required: boolean; classification: "eliminated" | "negotiating" | "qualified"; score: number;
 };
-export type SupplierCode = { phone: string; code: string; expires_in: number };
+export type SupplierCode = { phone: string; code: string | null; expires_in: number; demo_mode?: boolean };
 export type SupplierToken = { access_token: string; phone: string };
 export type MerchantProfile = { store_name: string; logo_emoji: string; logo_image: string; contact: string; category: string };
 export type MerchantToken = MerchantProfile & { access_token: string };
-export type MerchantCode = { phone: string; code: string; expires_in: number };
+export type MerchantCode = { phone: string; code: string | null; expires_in: number; demo_mode?: boolean };
 export type RegisterPayload = {
   account: string;
   password: string;

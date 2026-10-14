@@ -181,3 +181,41 @@ def test_password_change_revokes_previous_token(monkeypatch):
     # 旧令牌作废，新令牌可用
     assert client.get("/api/negotiations", headers=headers).status_code == 401
     assert client.get("/api/negotiations", headers={"Authorization": f"Bearer {new_token}"}).status_code == 200
+
+
+def test_otp_request_is_rate_limited(monkeypatch):
+    """同一手机号 60 秒内只能取一次验证码。"""
+    client = make_client(monkeypatch)
+    first = client.post("/api/auth/supplier/request-code", json={"phone": "13700000000"})
+    assert first.status_code == 200
+    second = client.post("/api/auth/supplier/request-code", json={"phone": "13700000000"})
+    assert second.status_code == 429
+    assert "Retry-After" in second.headers
+    # 换一个手机号不受影响（限的是号码维度，不是全局一刀切）
+    assert client.post("/api/auth/supplier/request-code", json={"phone": "13700000001"}).status_code == 200
+
+
+def test_password_login_is_rate_limited(monkeypatch):
+    """同一账号连续错误密码会被限流，防止在线爆破。"""
+    client = make_client(monkeypatch)
+    payload = {"account": "admin", "password": "wrong-password"}
+    codes = [client.post("/api/auth/merchant/login", json=payload).status_code for _ in range(6)]
+    assert codes[:5] == [401] * 5
+    assert codes[5] == 429
+
+
+def test_successful_login_does_not_consume_attempt_budget(monkeypatch):
+    """成功登录不计入失败额度，且会清零此前的失败次数。
+
+    否则用户在 15 分钟内正常登录 5 次就会被自己锁在门外。
+    """
+    client = make_client(monkeypatch)
+    good = {"account": "admin", "password": "链谈Agent123"}
+    # 先失败两次
+    for _ in range(2):
+        assert client.post("/api/auth/merchant/login", json={"account": "admin", "password": "nope"}).status_code == 401
+    # 成功一次应把失败计数清零
+    assert client.post("/api/auth/merchant/login", json=good).status_code == 200
+    # 之后仍能连续成功 6 次（若成功也计数，第 4 次就会 429）
+    for _ in range(6):
+        assert client.post("/api/auth/merchant/login", json=good).status_code == 200
