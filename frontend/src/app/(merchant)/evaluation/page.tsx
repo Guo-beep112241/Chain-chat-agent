@@ -71,5 +71,5 @@ export default function EvaluationPage() {
   </div>;
 }
 
-function Metric({value,name,warning=false}:{value:string;name:string;warning?:boolean}) { return <div className="rounded-xl bg-[var(--paper)] p-3"><div className={cn("text-2xl font-bold",warning&&"text-[var(--warning)]")}>{value}</div><div className="mt-1 text-xs text-[var(--muted)]">{name}</div></div>; }
+function Metric({value,name,warning=false}:{value:string;name:string;warning?:boolean}) { return <div className="rounded-xl bg-[var(--paper)] p-3"><div className={cn("tnum text-2xl font-bold",warning&&"text-[var(--warning)]")}>{value}</div><div className="mt-1 text-xs text-[var(--muted)]">{name}</div></div>; }
 function TextBlock({title,text}:{title:string;text:string}) { return <div><div className="text-sm font-semibold">{title}</div><div className="mt-2 rounded-xl bg-[var(--paper)] p-4 text-sm leading-6">{text}</div></div>; }

@@ -231,7 +231,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav className={cn("fixed inset-x-3 bottom-3 z-30 grid rounded-2xl border border-white/10 bg-[rgba(17,24,39,.94)] p-1.5 text-white shadow-2xl backdrop-blur-lg lg:hidden", isBuyer ? "grid-cols-2" : "grid-cols-4")}>
         {navItems.map(({ href, short, icon: Icon }) => {
           const active = pathname === href;
-          return <Link key={href} href={href} className={cn("flex flex-col items-center gap-1 rounded-xl py-2 text-[10px]", active ? "bg-white text-[var(--ink)]" : "text-white/55")}><Icon className={cn("size-4", active && "text-[var(--accent)]")} />{short}</Link>;
+          return <Link key={href} href={href} className={cn("flex flex-col items-center gap-1 rounded-xl py-2 text-[11px]", active ? "bg-white text-[var(--ink)]" : "text-white/55")}><Icon className={cn("size-4", active && "text-[var(--accent)]")} />{short}</Link>;
         })}
       </nav>
 
@@ -254,7 +254,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <div className="min-w-0 flex-1">
                 <label className="block"><span className="text-xs font-semibold">头像 emoji</span><Input className="mt-2" value={profileForm.logo_emoji} onChange={(e) => setProfileForm({ ...profileForm, logo_emoji: e.target.value })} placeholder="例如 🦌" maxLength={8} /></label>
-                <p className="mt-1.5 text-[10px] leading-4 text-[var(--muted)]">可填写 emoji，或点击左侧相机上传图片作为头像</p>
+                <p className="mt-1.5 text-xs leading-4 text-[var(--muted)]">可填写 emoji，或点击左侧相机上传图片作为头像</p>
               </div>
             </div>
             <div className="mt-4 space-y-3">

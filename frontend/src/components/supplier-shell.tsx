@@ -101,7 +101,7 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
                             <button key={item.id} onClick={() => openChat(item.id)} className="block w-full px-4 py-3 text-left transition hover:bg-[var(--paper)]">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="truncate text-sm font-semibold text-[var(--ink)]">{item.product.name}</span>
-                                <span className={cn("shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", item.status === "ai_active" ? "border-[var(--success)]/20 bg-[var(--success-faint)] text-[var(--success)]" : "border-[var(--accent)]/20 bg-[var(--accent-faint)] text-[var(--accent-strong)]")}>{statusText[item.status] ?? item.status}</span>
+                                <span className={cn("shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold", item.status === "ai_active" ? "border-[var(--success)]/20 bg-[var(--success-faint)] text-[var(--success)]" : "border-[var(--accent)]/20 bg-[var(--accent-faint)] text-[var(--accent-strong)]")}>{statusText[item.status] ?? item.status}</span>
                               </div>
                               <div className="mt-1 flex items-center gap-2 text-[11px] text-[var(--muted)]"><span className="font-bold text-[var(--accent-strong)]">{item.score} 分</span><span>·</span><span>{item.messages.length} 条消息</span></div>
                             </button>

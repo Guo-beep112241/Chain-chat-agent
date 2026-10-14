@@ -415,10 +415,10 @@ export default function NegotiatePage() {
                       {item.score}
                     </span>
                   </div>
-                  <div className="mt-1.5 truncate text-[11px] text-[var(--muted)]">
+                  <div className="mt-1.5 truncate text-xs text-[var(--muted)]">
                     {item.product.name}
                   </div>
-                  <div className="mt-2 text-[10px] text-[var(--muted)]">
+                  <div className="mt-2 text-[11px] text-[var(--muted)]">
                     {statusText[item.status] ?? item.status}
                   </div>
                 </button>
@@ -477,7 +477,7 @@ export default function NegotiatePage() {
             {view === "supplier-test" &&
               active.classification === "qualified" &&
               active.status === "ai_active" && (
-                <div className="mb-2 rounded-lg bg-[var(--warning-faint)] px-2.5 py-1.5 text-[11px] text-[var(--warning)]">
+                <div className="mb-2 rounded-lg bg-[var(--warning-faint)] px-2.5 py-1.5 text-xs text-[var(--warning)]">
                   该会话已达建议接管标准；商家点击接管前，AI 仍会继续回复。
                 </div>
               )}
@@ -524,7 +524,7 @@ export default function NegotiatePage() {
                 <ArrowUp className="size-4" />
               </Button>
             </div>
-            <div className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--muted)]">
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--muted)]">
               <Info className="size-3" />
               {view === "supplier-test"
                 ? "测试发言与 AI 回复都会写入当前供应商会话"
@@ -539,7 +539,7 @@ export default function NegotiatePage() {
               <div className="text-xs font-semibold text-[var(--muted)]">
                 供应商综合评分
               </div>
-              <div className="mt-1 text-4xl font-bold">
+              <div className="tnum mt-1 text-4xl font-bold">
                 {active.score}
                 <span className="text-sm font-normal text-[var(--muted)]">
                   {" "}
@@ -581,7 +581,7 @@ export default function NegotiatePage() {
                   <ClipboardList className="size-4 text-[var(--accent)]" />
                   AI 谈判摘要
                 </div>
-                <span className="text-[10px] text-[var(--muted)]">
+                <span className="text-[11px] text-[var(--muted)]">
                   自动生成
                 </span>
               </div>
@@ -619,7 +619,7 @@ export default function NegotiatePage() {
                   <FileBadge2 className="size-4 text-[var(--accent)]" />
                   资质文件 · 人工核验
                 </div>
-                <span className="text-[10px] text-[var(--muted)]">
+                <span className="text-[11px] text-[var(--muted)]">
                   {active.supplier.qualification_files.length} 份
                 </span>
               </div>
@@ -634,7 +634,7 @@ export default function NegotiatePage() {
                         <div className="truncate font-medium">
                           {file.original_name}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-[var(--muted)]">
+                        <div className="mt-0.5 text-[11px] text-[var(--muted)]">
                           {Math.max(1, Math.round(file.size_bytes / 1024))} KB ·{" "}
                           {new Date(file.uploaded_at).toLocaleString("zh-CN")}
                           {file.ocr_status === "passed" && (
@@ -731,7 +731,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-[var(--paper)] p-3">
       <div className="text-[var(--muted)]">{label}</div>
-      <div className="mt-1.5 truncate font-bold">{value}</div>
+      <div className="tnum mt-1.5 truncate font-bold">{value}</div>
     </div>
   );
 }

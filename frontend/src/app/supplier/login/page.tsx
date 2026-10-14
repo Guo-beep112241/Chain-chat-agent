@@ -60,10 +60,10 @@ export default function SupplierLoginPage() {
             </div>
           </div>
 
-          <div className="mt-6 flex items-center gap-2 rounded-xl border border-[var(--success)]/20 bg-[var(--success-faint)] px-3 py-2 text-[11px] text-[var(--muted)]"><ShieldCheck className="size-4 text-[var(--success)]" />本演示使用假验证码，验证码会直接显示，不发送真实短信。</div>
+          <div className="mt-6 flex items-center gap-2 rounded-xl border border-[var(--success)]/20 bg-[var(--success-faint)] px-3 py-2 text-xs text-[var(--muted)]"><ShieldCheck className="size-4 text-[var(--success)]" />本演示使用假验证码，验证码会直接显示，不发送真实短信。</div>
 
           {error && <div className="mt-4 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning-faint)] p-3 text-sm text-[var(--warning)]">{error}</div>}
-          {notice && demoCode && <div className="mt-4 rounded-xl border border-dashed border-[var(--accent)]/30 bg-[var(--accent-faint)] p-3 text-sm"><div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div><div className="mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div><p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p></div>}
+          {notice && demoCode && <div className="mt-4 rounded-xl border border-dashed border-[var(--accent)]/30 bg-[var(--accent-faint)] p-3 text-sm"><div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div><div className="mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div><p className="mt-1 text-xs text-[var(--muted)]">{notice}</p></div>}
 
           <form onSubmit={login} className="mt-6 space-y-4">
             <label>
@@ -88,7 +88,7 @@ export default function SupplierLoginPage() {
             <Button type="submit" variant="accent" size="lg" className="w-full" disabled={loggingIn || !phone.trim() || !code.trim()}>{loggingIn ? <Loader2 className="size-4 animate-spin" /> : "登录并进入供应商入口"}</Button>
           </form>
 
-          <p className="mt-5 text-center text-[10px] leading-4 text-[var(--muted)]">登录即表示你确认使用本手机号作为供应商身份标识，用于本次供货评估与洽谈。</p>
+          <p className="mt-5 text-center text-xs leading-4 text-[var(--muted)]">登录即表示你确认使用本手机号作为供应商身份标识，用于本次供货评估与洽谈。</p>
         </CardContent>
       </Card>
     </div>

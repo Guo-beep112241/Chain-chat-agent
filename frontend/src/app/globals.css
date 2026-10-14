@@ -55,7 +55,17 @@
 }
 
 /* 兼容别名：既有代码大量使用 bg-[var(--paper)] / text-[var(--muted)] 这类写法，
-   保留同名变量以免一次性重写数百处；新代码可直接用 bg-paper / text-muted。 */
+   保留同名变量以免一次性重写数百处；新代码可直接用 bg-paper / text-muted。
+
+   字号约定（改动界面时请遵守）：
+     text-xs  (12px) —— 正文最小尺寸：提示、警告、脚注、说明句子
+     text-[11px]     —— 仅用于元信息：时间、计数、状态标签、导航小字
+     text-sm  (14px) —— 常规正文与表单
+     text-[10px]     —— 仅允许品牌字标（宽字距的 SUPPLY NEGOTIATOR），不得承载信息
+
+   圆角约定：Tailwind 的 rounded-lg(8) / rounded-xl(12) / rounded-2xl(16)
+   正好等于 --radius-chip / --radius-control / --radius-card，
+   二者数值一致，新代码优先用令牌名，避免以后调阶梯时漏改。 */
 :root {
   --paper: var(--color-paper);
   --paper-deep: var(--color-paper-deep);

@@ -135,7 +135,7 @@ export default function HomePage() {
             >
               登录
             </Button>
-            <p className="mt-4 text-center text-[10px] leading-4 text-[var(--muted)]">采购方使用账号密码或手机验证码登录 · 供应商使用手机号验证码登录</p>
+            <p className="mt-4 text-center text-xs leading-4 text-[var(--muted)]">采购方使用账号密码或手机验证码登录 · 供应商使用手机号验证码登录</p>
           </CardContent>
         </Card>
       </div>
@@ -218,7 +218,7 @@ export default function HomePage() {
                       <div className="rounded-xl border border-dashed border-[var(--accent)]/30 bg-[var(--accent-faint)] p-3 text-sm">
                         <div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div>
                         <div className="mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
-                        <p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{notice}</p>
                       </div>
                     )}
                   </div>
@@ -228,7 +228,7 @@ export default function HomePage() {
                 <Button variant="accent" size="lg" className="mt-4 w-full" disabled={submitting} onClick={() => void loginBuyer()}>
                   {submitting ? <Loader2 className="size-4 animate-spin" /> : "登录并进入"}
                 </Button>
-                <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3 text-[11px] leading-5 text-[var(--muted)]">
+                <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3 text-xs leading-5 text-[var(--muted)]">
                   演示凭证：账号 <span className="font-semibold text-[var(--ink)]">admin</span> · 手机号 <span className="font-semibold text-[var(--ink)]">13800138000</span>。验证码为演示码，点击「获取验证码」直接返回。
                 </div>
                 <p className="mt-4 text-center text-xs text-[var(--muted)]">

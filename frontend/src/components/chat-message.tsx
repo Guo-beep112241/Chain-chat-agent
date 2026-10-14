@@ -67,20 +67,20 @@ export function ChatMessageItem({ message, supplierName }: { message: ChatMessag
           )}
         >
           {message.sender === "ai" && (
-            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-[var(--ai-on-dark)]">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-[var(--ai-on-dark)]">
               <Bot className="size-3" />
               AI 采购助手
             </div>
           )}
           {message.sender === "human" && (
-            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-white/75">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-white/75">
               <UserRound className="size-3" />
               店长本人
             </div>
           )}
           {message.content}
         </div>
-        <div className="mt-1 text-[10px] text-[var(--muted)]">
+        <div className="mt-1 text-[11px] text-[var(--muted)]">
           {new Date(message.created_at).toLocaleString("zh-CN")}
         </div>
       </div>

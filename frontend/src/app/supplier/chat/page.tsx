@@ -246,7 +246,7 @@ function SupplierChatContent() {
                       {item.product.name}
                       <Badge
                         className={cn(
-                          "border-0 px-2 py-0.5 text-[10px]",
+                          "border-0 px-2 py-0.5 text-[11px]",
                           item.status === "ai_active"
                             ? "bg-[var(--success-faint)] text-[var(--success)]"
                             : "bg-[var(--accent-faint)] text-[var(--accent-strong)]",
@@ -405,7 +405,7 @@ function SupplierChatContent() {
                 )}
               </Button>
             </div>
-            <div className="mt-2 text-[10px] text-[var(--muted)]">
+            <div className="mt-2 text-xs text-[var(--muted)]">
               AI 采购助手会自动回复；底线与评分由程序校验，AI
               不会擅自承诺下单或付款。
             </div>
