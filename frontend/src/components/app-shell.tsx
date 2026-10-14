@@ -147,7 +147,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const avatar = merchant?.logo_image
-    ? <img src={merchant.logo_image} alt="" className="size-7 rounded-lg object-cover" />
+    // 头像是前端压缩后的 data URL（最长边 256px），next/image 的优化器
+    // 对 data URL 不生效，改成 Image 只会多一层包装，因此保留 <img>。
+    // eslint-disable-next-line @next/next/no-img-element
+    ? <img src={merchant.logo_image} alt="" width={28} height={28} className="size-7 rounded-lg object-cover" />
     : <span className="grid size-7 place-items-center rounded-lg bg-[var(--accent-faint)] text-xs font-bold text-[var(--accent-strong)]">{merchant?.logo_emoji || "鹿"}</span>;
 
   // 采购方登录后只保留「采购工作台 / 实时谈判」；未登录时会被上面重定向回首页。
@@ -257,7 +260,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-start gap-4">
           <div className="relative shrink-0">
             {profileForm.logo_image
-              ? <img src={profileForm.logo_image} alt="" className="size-16 rounded-[var(--radius-card)] object-cover" />
+              // eslint-disable-next-line @next/next/no-img-element -- 同上：data URL 无需交给图片优化器
+              ? <img src={profileForm.logo_image} alt="当前头像预览" width={64} height={64} className="size-16 rounded-[var(--radius-card)] object-cover" />
               : <span className="grid size-16 place-items-center rounded-[var(--radius-card)] bg-[var(--accent-faint)] text-3xl">{profileForm.logo_emoji || "🦌"}</span>}
             <button type="button" onClick={() => avatarInputRef.current?.click()} aria-label="上传头像" className="absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full bg-[var(--ink)] text-white shadow"><Camera className="size-3" /></button>
             <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleAvatarFile(f); e.target.value = ""; }} />

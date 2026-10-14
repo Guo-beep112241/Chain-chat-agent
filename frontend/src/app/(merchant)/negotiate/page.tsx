@@ -645,6 +645,7 @@ export default function NegotiatePage() {
                 type="submit"
                 variant="accent"
                 size="icon"
+                aria-label="发送消息"
                 disabled={
                   sending ||
                   !draft.trim() ||

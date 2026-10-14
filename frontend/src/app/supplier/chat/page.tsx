@@ -392,6 +392,7 @@ function SupplierChatContent() {
                 type="submit"
                 variant="accent"
                 size="icon"
+                aria-label="发送消息"
                 disabled={!draft.trim() || sending}
                 className="absolute bottom-2 right-2 size-9"
               >
