@@ -11,10 +11,6 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-// 演示凭证与 backend/app/config.py 的默认值一致；演示环境的价值就是零摩擦进入，
-// 所以做成一个可点击填入的按钮，而不是让人照着屏幕手打一遍。
-const DEMO = { account: "admin", password: "链谈Agent123", phone: "13800138000" };
-
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"password" | "code">("password");
@@ -44,13 +40,6 @@ export default function LoginPage() {
     // 只清展示块会留下一个「看不见但可以直接提交」的旧验证码。
     // 倒计时保留——它属于手机号而不是当前标签，清了反而会引诱用户连点撞 429。
     setCode("");
-  }
-
-  function fillDemoAccount() {
-    switchMode("password");
-    setAccount(DEMO.account);
-    setPassword(DEMO.password);
-    setError("");
   }
 
   async function sendCode() {
@@ -256,21 +245,6 @@ export default function LoginPage() {
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
           {submitting ? "正在进入工作台…" : "登录并进入"}
         </Button>
-
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5">
-          <span className="text-[11px] leading-5 text-[var(--muted)]">
-            <span className="whitespace-nowrap">演示账号 <span className="tnum font-semibold text-[var(--ink)]">{DEMO.account}</span></span>
-            <span className="whitespace-nowrap"> · 密码 <span className="font-semibold text-[var(--ink)]">{DEMO.password}</span></span>
-            <span className="whitespace-nowrap"> · 手机号 <span className="tnum font-semibold text-[var(--ink)]">{DEMO.phone}</span></span>
-          </span>
-          <button
-            type="button"
-            onClick={fillDemoAccount}
-            className="shrink-0 rounded-[var(--radius-chip)] border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--accent-strong)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]"
-          >
-            填入演示账号
-          </button>
-        </div>
 
         <p className="mt-5 text-center text-xs text-[var(--muted)]">
           没有账号？{" "}
