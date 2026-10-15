@@ -42,7 +42,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
+    // suppressHydrationWarning 是必须的：上面那段内联脚本会在水合之前给 <html>
+    // 加上 .motion，React 比对服务端标记与客户端属性时必然发现差异，
+    // 于是每个页面都往控制台打一条 hydration 报错，Next 开发浮层也常驻一个 Issue。
+    // 这里只压制 <html> 自身属性的差异，不会掩盖子树的真实水合问题。
+    <html lang="zh-CN" suppressHydrationWarning>
       <head>
         {/* 动效开关。为什么必须是首屏同步内联脚本：
             滚动入场元素的隐藏态写在 `.motion .reveal{opacity:0}` 里，
