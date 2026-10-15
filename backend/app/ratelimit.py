@@ -93,7 +93,13 @@ def enforce(request: Request, *, scope: str, key: str, limit: int, window_second
     """检查并记录一次命中，超限则抛 429。适用于「每次调用都计入」的端点。"""
     retry_after = limiter.hit(f"{scope}:{key}", limit, window_seconds)
     if retry_after:
-        raise HTTPException(status_code=429, detail=message, headers={"Retry-After": str(retry_after)})
+        # 把等待时间写进 detail：只回「请稍后再试」，用户不知道是 3 秒还是 1 小时，
+        # 只会不停重试，把额度耗得更彻底。Retry-After 头保留给程序化调用方。
+        raise HTTPException(
+            status_code=429,
+            detail=f"{message}（约 {retry_after} 秒后可再试）",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 def guard(*, scope: str, key: str, limit: int, window_seconds: int, message: str) -> str:
@@ -105,7 +111,11 @@ def guard(*, scope: str, key: str, limit: int, window_seconds: int, message: str
     full_key = f"{scope}:{key}"
     retry_after = limiter.peek(full_key, limit, window_seconds)
     if retry_after:
-        raise HTTPException(status_code=429, detail=message, headers={"Retry-After": str(retry_after)})
+        raise HTTPException(
+            status_code=429,
+            detail=f"{message}（约 {retry_after} 秒后可再试）",
+            headers={"Retry-After": str(retry_after)},
+        )
     return full_key
 
 

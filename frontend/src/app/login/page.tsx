@@ -154,6 +154,11 @@ export default function LoginPage() {
                   onChange={(e) => setAccount(e.target.value)}
                   placeholder="登录账号"
                   autoComplete="username"
+                  // 手机键盘默认首字母大写，账号 admin 会被自动写成 Admin。
+                  // 后端已按忽略大小写匹配，这里再从输入端关掉自动大写与自动纠错。
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   aria-invalid={Boolean(error) && !account.trim()}
                   aria-describedby={errorId}
                 />

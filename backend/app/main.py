@@ -10,8 +10,9 @@ from urllib.parse import quote
 import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
@@ -121,6 +122,18 @@ app.add_middleware(
 
 
 logger = logging.getLogger("liantan")
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
+    """数据库不可用时返回 503 而不是裸 500。
+
+    原先数据库断连（连接串写错、Supabase 连接池打满、本地库被删）会抛 SQLAlchemyError，
+    前端只能看到 500 / "Internal Server Error"，无法区分「后端挂了」「接口不存在」
+    还是「数据库断了」。这里统一成 503 + 明确文案，前端据此给出可操作的提示。
+    """
+    logger.exception("数据库操作失败", extra={"path": request.url.path})
+    return JSONResponse(status_code=503, content={"detail": "数据库暂时不可用，请稍后重试"})
 
 
 def _mask_phone(phone: str) -> str:
@@ -255,8 +268,12 @@ async def request_context(request: Request, call_next):
 
 @app.get("/api/health")
 def health() -> dict:
-    """存活探针：只表示进程还在，不检查依赖（供负载均衡高频调用）。"""
-    return {"status": "ok", "time": datetime.utcnow().isoformat(), "llm_configured": bool(settings.deepseek_api_key)}
+    """存活探针：只表示进程还在，不检查依赖（供负载均衡高频调用）。
+
+    额外带上 version：前端在接口 404 时会回探这里，用于区分
+    「后端没起来」与「后端还停在缺少该接口的旧版本」。
+    """
+    return {"status": "ok", "version": app.version, "time": datetime.utcnow().isoformat(), "llm_configured": bool(settings.deepseek_api_key)}
 
 
 @app.get("/api/health/live")
@@ -338,7 +355,11 @@ def get_merchant_by_phone(db: Session, phone: str) -> MerchantAccount | None:
 
 @app.post("/api/auth/merchant/register", response_model=MerchantTokenOut, status_code=201)
 def merchant_register(payload: MerchantRegisterIn, request: Request, db: Session = Depends(get_db)):
-    """注册新商家（注册即登录）：账号/手机号/邮箱全局唯一，密码复用原规则，须知必须勾选。"""
+    """注册新商家（注册即登录）：账号/手机号/邮箱全局唯一，密码复用原规则，须知必须勾选。
+
+    账号与邮箱的唯一性判断不区分大小写：登录时账号也是不区分大小写匹配的，
+    如果注册允许 "Admin" 与 "admin" 共存，登录就会匹配到不确定的一行。
+    """
     enforce(request, scope="register:ip", key=client_ip(request), limit=5, window_seconds=3600, message="注册过于频繁，请稍后再试")
     if not payload.agree_terms:
         raise HTTPException(status_code=422, detail="请先阅读并同意平台须知")
@@ -347,11 +368,12 @@ def merchant_register(payload: MerchantRegisterIn, request: Request, db: Session
     account_name = payload.account.strip()
     phone = payload.phone.strip()
     email = payload.email.strip()
-    if db.scalar(select(MerchantAccount.id).where(MerchantAccount.account == account_name)):
+    account_key = account_name.lower()
+    if db.scalar(select(MerchantAccount.id).where(func.lower(MerchantAccount.account) == account_key)):
         raise HTTPException(status_code=409, detail="该账号已被注册")
     if db.scalar(select(MerchantAccount.id).where(MerchantAccount.phone == phone)):
         raise HTTPException(status_code=409, detail="该手机号已被绑定")
-    if db.scalar(select(MerchantAccount.id).where(MerchantAccount.email == email)):
+    if db.scalar(select(MerchantAccount.id).where(func.lower(MerchantAccount.email) == email.lower())):
         raise HTTPException(status_code=409, detail="该邮箱已被绑定")
     account = MerchantAccount(
         store_name=payload.store_name.strip(),
@@ -374,7 +396,8 @@ def request_merchant_code(payload: MerchantCodeRequest, request: Request, db: Se
     enforce(request, scope="otp:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
     account = get_merchant_by_phone(db, phone)
     if account is None:
-        raise HTTPException(status_code=404, detail="该手机号未绑定采购方账号")
+        # 文案必须给出下一步动作：早期只写「未绑定」，用户只会反复重试同一个手机号。
+        raise HTTPException(status_code=404, detail="该手机号还没有绑定采购方账号，请先注册商家账号，或改用账号密码登录")
     code = issue_code(phone)
     if not settings.demo_mode:
         raise HTTPException(status_code=503, detail="短信服务未配置，暂时无法发送验证码")
@@ -401,14 +424,17 @@ def merchant_code_login(payload: MerchantCodeLoginIn, request: Request, db: Sess
 def merchant_login(payload: MerchantPasswordLoginIn, request: Request, db: Session = Depends(get_db)):
     # PBKDF2 校验约 100ms，不限流即可被高频在线爆破。
     # 只把失败计入额度：成功的登录不该消耗次数，否则用户正常登录 5 次就被自己锁住了。
+    # 账号按去空格 + 忽略大小写匹配：手机键盘默认首字母大写，输入 admin 很容易变成 Admin，
+    # 若按原样精确匹配就会报「账号或密码错误」，用户只会以为是密码错了。
+    account_input = payload.account.strip()
     attempt_key = guard(
         scope="login:merchant:pw",
-        key=f"{client_ip(request)}:{payload.account.strip().lower()}",
+        key=f"{client_ip(request)}:{account_input.lower()}",
         limit=5,
         window_seconds=900,
         message="账号或密码错误次数过多，请 15 分钟后再试",
     )
-    account = db.scalar(select(MerchantAccount).where(MerchantAccount.account == payload.account.strip()))
+    account = db.scalar(select(MerchantAccount).where(func.lower(MerchantAccount.account) == account_input.lower()))
     if account is None or not account.password_hash or not verify_password(payload.password, account.password_hash):
         record_failure(attempt_key)
         raise HTTPException(status_code=401, detail="账号或密码错误")

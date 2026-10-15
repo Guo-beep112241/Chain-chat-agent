@@ -142,6 +142,11 @@ export default function RegisterPage() {
                 placeholder="3-80 位字母、数字或下划线"
                 autoComplete="username"
                 autoFocus
+                // 与登录页一致：手机键盘的自动大写会把 admin 变成 Admin，
+                // 注册与登录的大小写口径必须统一，否则用户注册完就登不进去。
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 aria-describedby={errorId}
               />
             </div>
