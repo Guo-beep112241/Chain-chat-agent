@@ -118,6 +118,118 @@ export type MLEvaluationResult = {
   feature_importance: Record<string, number>; decision_tree_rules: string | null; rule_engine_baseline_accuracy: number; note: string;
 };
 
+// —— 失败原因诊断 ——
+// 背景：接口报错时前端此前直接把后端 detail 原文抛给用户，于是界面上会出现
+// 「Not Found」「Failed to fetch」「[object Object]」这类原文——用户看到 not found
+// 只会怀疑数据库断了或鉴权坏了，而我们连「后端没起来」「后端是旧版本」
+// 「参数格式不对」都分不出来。这里把三类失败拆开，各给一句能照着做的中文。
+
+const FIELD_LABELS: Record<string, string> = {
+  account: "登录账号",
+  password: "密码",
+  phone: "手机号",
+  code: "验证码",
+  email: "邮箱",
+  store_name: "商家名称",
+  agree_terms: "平台须知",
+  current_password: "原密码",
+  new_password: "新密码",
+  content: "消息内容",
+};
+
+type Probe =
+  | { state: "ok"; version: string | null }
+  | { state: "not-backend" }
+  | { state: "offline" };
+
+let probeCache: { at: number; value: Probe } | null = null;
+
+/** 回探 /api/health，用来区分「后端没起来」和「后端还是旧版本」。5 秒内复用结果。 */
+async function probeBackend(): Promise<Probe> {
+  if (probeCache && Date.now() - probeCache.at < 5000) return probeCache.value;
+  let value: Probe;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const response = await fetch(`${API_BASE}/api/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as { version?: string; status?: string } | null;
+      value = body && body.status === "ok" ? { state: "ok", version: body.version ?? null } : { state: "not-backend" };
+    } else if (response.status === 404) {
+      // 有服务在监听，但不认识 /api/health——地址多半指错了地方（例如指到了前端）。
+      value = { state: "not-backend" };
+    } else {
+      value = { state: "offline" };
+    }
+  } catch {
+    value = { state: "offline" };
+  }
+  probeCache = { at: Date.now(), value };
+  return value;
+}
+
+function offlineMessage(probe: Probe): string {
+  if (probe.state === "not-backend") {
+    return `后端地址 ${API_BASE} 上的服务不是链谈 Agent 后端（该地址没有 /api/health 接口）。请检查 NEXT_PUBLIC_API_URL 是否误填成了前端网址。`;
+  }
+  return `无法连接后端服务 ${API_BASE}。请确认后端已启动；若前端是部署在别处的，请检查 NEXT_PUBLIC_API_URL 是否指向正确的后端地址。`;
+}
+
+/** 把一条 FastAPI 校验错误翻译成人话。FastAPI 的 msg 是英文，直接展示等于没说。 */
+function describeValidationItem(item: unknown): string | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as { loc?: unknown[]; type?: string };
+  const path = Array.isArray(record.loc) ? record.loc.filter((part) => part !== "body") : [];
+  const field = path.length ? String(path[path.length - 1]) : "";
+  const label = FIELD_LABELS[field] ?? field;
+  const type = record.type ?? "";
+  if (field === "agree_terms") return "请先阅读并勾选同意平台须知";
+  if (type.includes("missing")) return `${label || "必填项"}不能为空`;
+  if (field === "phone") return "请输入 11 位手机号";
+  if (field === "code") return "请输入 6 位验证码";
+  if (field === "email") return "请输入正确的邮箱地址";
+  if (field === "account" && (type.includes("pattern") || type.includes("short"))) return "账号需 3-80 位，仅限字母、数字、下划线";
+  if (field === "password" && (type.includes("short") || type.includes("length"))) return "密码长度需大于 8 个字符";
+  return label ? `${label}填写有误` : null;
+}
+
+/** detail 可能是字符串、FastAPI 的校验错误数组，或对象；取不出去就返回 null 走兜底。 */
+function messageFromDetail(detail: unknown): string | null {
+  if (typeof detail === "string") {
+    const text = detail.trim();
+    // "Not Found" 是 FastAPI 在路由不存在时的默认值，等于没写，交给 404 分支去探因。
+    if (!text || text === "Not Found") return null;
+    return text;
+  }
+  if (Array.isArray(detail)) {
+    const messages = detail.map(describeValidationItem).filter((item): item is string => Boolean(item));
+    return messages.length ? messages[0] : "提交的内容格式不正确，请检查后重试";
+  }
+  if (detail && typeof detail === "object") {
+    const nested = (detail as { message?: unknown; detail?: unknown }).message ?? (detail as { detail?: unknown }).detail;
+    if (typeof nested === "string" && nested.trim()) return nested.trim();
+  }
+  return null;
+}
+
+/** 非 2xx 时决定给用户看什么。 */
+async function explainFailure(status: number, body: unknown, path: string): Promise<string> {
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+  const fromDetail = messageFromDetail(detail);
+  if (fromDetail) return fromDetail;
+  if (status === 404) {
+    const probe = await probeBackend();
+    if (probe.state === "ok") {
+      return `后端服务可达（版本 ${probe.version ?? "未知"}），但没有 ${path} 这个接口——后端很可能还停在旧版本，请更新后端代码并重启。`;
+    }
+    return offlineMessage(probe);
+  }
+  if (status === 503) return "后端数据库暂时不可用，请稍后重试；若持续出现，请检查后端 DATABASE_URL 配置。";
+  if (status >= 500) return `后端处理失败（HTTP ${status}）。可把顶栏请求编号提供给开发排查。`;
+  return `请求失败（HTTP ${status}）`;
+}
+
 async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "none"): Promise<T> {
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
   if (init?.body instanceof FormData) delete headers["Content-Type"]; // 让浏览器自带 multipart boundary
@@ -131,12 +243,29 @@ async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "no
     const token = getSupplierToken();
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: "请求失败" }));
-    throw new Error(body.detail || `HTTP ${response.status}`);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  } catch {
+    // fetch 直接抛错 = 请求根本没送到后端：服务没起来、被跨域拦下、或混合内容被浏览器拦。
+    const probe = await probeBackend();
+    if (probe.state === "ok") {
+      const origin = typeof window === "undefined" ? "当前网页" : window.location.origin;
+      throw new Error(
+        `请求没能送达后端。${API_BASE} 本身可访问，通常是后端 FRONTEND_ORIGIN 没有包含 ${origin}，请求被跨域拦截。`,
+      );
+    }
+    throw new Error(offlineMessage(probe));
   }
-  return response.json() as Promise<T>;
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(await explainFailure(response.status, body, path));
+  }
+  const body = await response.json().catch(() => null);
+  if (body === null) {
+    throw new Error(`后端返回了非 JSON 响应，接口 ${path} 可能不是链谈 Agent 后端。`);
+  }
+  return body as T;
 }
 
 // —— 认证 ——
