@@ -236,7 +236,7 @@ export default function SupplierPage() {
             <Badge className={cn("mt-6", isTop ? "border-[var(--success)]/20 bg-[var(--success-faint)] text-[var(--success)]" : passed ? "border-[var(--warning)]/20 bg-[var(--warning-faint)] text-[var(--warning)]" : "border-[var(--danger)]/20 bg-[var(--danger-faint)] text-[var(--danger)]")}>
               {displayResult.level} · <span className="tnum">{displayResult.score}</span> 分
             </Badge>
-            <h1 className="mt-4 text-3xl font-bold tracking-tight">
+            <h1 className="mt-4 text-[28px] font-bold tracking-tight">
               {passed ? "资料已通过底线校验" : "当前方案需要继续调整"}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
@@ -310,7 +310,7 @@ export default function SupplierPage() {
             <span className="h-px w-5 bg-[var(--accent)]" />
             供应商自助入口
           </div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">提交供货方案</h1>
+          <h1 className="text-[28px] font-bold tracking-tight">提交供货方案</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
             如实填写报价、起订量、资质与配合方案。系统将自动匹配当前采购需求，合适的方案可直接进入 AI 洽谈。
           </p>

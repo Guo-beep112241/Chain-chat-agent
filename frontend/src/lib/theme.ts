@@ -7,10 +7,10 @@
  * 避免两个文件各写一份、改一处漏一处。
  *
  * 对应 globals.css:
- *   --color-accent: #1d4ed8
- *   --color-paper:  #f7f8fa
+ *   --color-accent: #3b82f6
+ *   --color-paper:  #e8edf5
  */
 export const BRAND_COLORS = {
-  accent: "#1d4ed8",
-  paper: "#f7f8fa",
+  accent: "#3b82f6",
+  paper: "#e8edf5",
 } as const;

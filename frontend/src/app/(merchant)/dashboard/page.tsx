@@ -140,7 +140,7 @@ export default function DashboardPage() {
             <span className="h-px w-5 bg-[var(--accent)]" />
             商家管理后台
           </div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">采购工作台</h1>
+          <h1 className="text-[28px] font-bold tracking-tight">采购工作台</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
             统计口径：<span className="font-semibold text-[var(--ink)]">{rangeLabel}</span>
             {" · "}本口径内 {summary.range_received} 条接待记录，由真实数据自动生成。

@@ -164,31 +164,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
-      <aside className="hidden border-r border-white/10 bg-[var(--ink)] text-white lg:flex lg:min-h-screen lg:flex-col lg:p-5">
+    <div className="min-h-screen lg:grid lg:grid-cols-[232px_1fr]">
+      <aside className="hidden border-r border-[var(--line)] bg-[var(--surface)] lg:flex lg:min-h-screen lg:flex-col lg:p-5">
         <div className="flex items-center gap-3 px-2 py-2">
-          <BrandMark className="bg-white text-[var(--ink)] [&>span:first-child]:border-[var(--accent)] [&>span:nth-child(2)]:border-[var(--ink)]" />
-          <div><div className="text-lg font-bold tracking-tight">链谈 <span className="text-[var(--accent)]">Agent</span></div><div className="text-[10px] tracking-[.22em] text-white/45">SUPPLY NEGOTIATOR</div></div>
+          <BrandMark className="bg-[var(--accent)] text-white [&>span:first-child]:border-white [&>span:nth-child(2)]:border-white" />
+          <div><div className="text-lg font-bold tracking-tight text-[var(--ink)]">链谈 <span className="text-[var(--accent)]">Agent</span></div><div className="text-[10px] tracking-[.22em] text-[var(--muted)]">SUPPLY NEGOTIATOR</div></div>
         </div>
         <nav className="mt-9 space-y-1.5">
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
-            return <Link key={href} href={href} className={cn("flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition", active ? "bg-white text-[var(--ink)] shadow-lg" : "text-white/62 hover:bg-white/8 hover:text-white")}><Icon className={cn("size-[18px]", active && "text-[var(--accent)]")} />{label}</Link>;
+            return <Link key={href} href={href} className={cn("flex items-center gap-3 rounded-[var(--radius-control)] px-3 py-2.5 text-sm font-medium transition", active ? "bg-[var(--accent)] text-white shadow-sm" : "text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]")}><Icon className="size-[18px]" />{label}</Link>;
           })}
         </nav>
-        <div className="mt-auto rounded-2xl border border-white/10 bg-white/[.055] p-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-white/75"><Bot className="size-4 text-[var(--accent)]" />{online ? "AI 已启用 · 正在自动接待" : "AI 暂时无法连接"}</div>
+        <div className="mt-auto rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--paper)] p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold text-[var(--ink)]"><Bot className="size-4 text-[var(--accent)]" />{online ? "AI 已启用 · 正在自动接待" : "AI 暂时无法连接"}</div>
           {summary && (
             <>
-              <div className="mt-3 flex items-center justify-between text-[11px] text-white/55"><span>今日接待</span><span className="font-semibold text-white">{summary.today_received} 家</span></div>
-              <div className="mt-2 flex items-center justify-between text-[11px] text-white/55"><span>优质候选</span><span className="font-semibold text-white">{summary.qualified} 家</span></div>
-              <div className="mt-2 flex items-center justify-between text-[11px] text-white/55"><span>AI 谈判中</span><span className="font-semibold text-white">{summary.ai_active} 家</span></div>
+              <div className="mt-3 flex items-center justify-between text-[11px] text-[var(--muted)]"><span>今日接待</span><span className="font-semibold text-[var(--ink)]">{summary.today_received} 家</span></div>
+              <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--muted)]"><span>优质候选</span><span className="font-semibold text-[var(--ink)]">{summary.qualified} 家</span></div>
+              <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--muted)]"><span>AI 谈判中</span><span className="font-semibold text-[var(--ink)]">{summary.ai_active} 家</span></div>
             </>
           )}
         </div>
       </aside>
       <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--line)] bg-[rgba(247,248,250,.88)] px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-20 flex h-[60px] items-center justify-between bg-[var(--surface)] px-4 shadow-[var(--shadow-card)] sm:px-6 lg:px-8">
           <div className="flex items-center gap-3 lg:hidden"><BrandMark /><span className="font-bold">链谈 Agent</span></div>
           <div className="hidden items-center gap-2 text-xs text-[var(--muted)] lg:flex"><span className={cn("size-2 rounded-full", online ? "bg-[var(--success)]" : "bg-[var(--warning)]")} />{online ? "服务正常 · AI 已在自动接待" : "服务连接中断，正在重试"}</div>
           <div className="ml-auto flex items-center gap-3">
@@ -235,10 +235,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         <main className="mx-auto max-w-[1500px] p-4 pb-24 sm:p-6 lg:p-8 lg:pb-8">{children}</main>
       </div>
-      <nav className={cn("fixed inset-x-3 bottom-3 z-30 grid rounded-2xl border border-white/10 bg-[rgba(17,24,39,.94)] p-1.5 text-white shadow-2xl backdrop-blur-lg lg:hidden", isBuyer ? "grid-cols-2" : "grid-cols-4")}>
+      <nav className={cn("fixed inset-x-3 bottom-3 z-30 grid rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)] p-1.5 shadow-[var(--shadow-pop)] lg:hidden", isBuyer ? "grid-cols-2" : "grid-cols-4")}>
         {navItems.map(({ href, short, icon: Icon }) => {
           const active = pathname === href;
-          return <Link key={href} href={href} className={cn("flex flex-col items-center gap-1 rounded-xl py-2 text-[11px]", active ? "bg-white text-[var(--ink)]" : "text-white/55")}><Icon className={cn("size-4", active && "text-[var(--accent)]")} />{short}</Link>;
+          return <Link key={href} href={href} className={cn("flex flex-col items-center gap-1 rounded-[var(--radius-control)] py-2 text-[11px]", active ? "bg-[var(--accent)] text-white" : "text-[var(--muted)]")}><Icon className="size-4" />{short}</Link>;
         })}
       </nav>
 

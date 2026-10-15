@@ -49,7 +49,7 @@ export default function SecurityPage() {
     <div className="animate-rise mx-auto max-w-xl py-4 sm:py-8">
       <div className="mb-6">
         <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--accent-strong)]"><span className="h-px w-5 bg-[var(--accent)]" />账号安全</div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">修改登录密码</h1>
+        <h1 className="text-[28px] font-bold tracking-tight">修改登录密码</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">新密码需大于 8 位，并同时包含英文字母和数字。修改后用于网页登录。</p>
       </div>
 

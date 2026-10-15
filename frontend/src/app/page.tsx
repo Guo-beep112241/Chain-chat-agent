@@ -81,7 +81,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[var(--paper)]">
       {/* 顶部导航 */}
-      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-[rgba(247,248,250,.86)] backdrop-blur-xl">
+      <header className="sticky top-0 z-30 bg-[var(--surface)] shadow-[var(--shadow-card)]">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5">
             <BrandMark />

@@ -223,7 +223,7 @@ function SupplierChatContent() {
     return (
       <div className="mx-auto flex max-w-3xl flex-col animate-rise">
         <div className="mb-5">
-          <h1 className="text-2xl font-bold tracking-tight">我的洽谈会话</h1>
+          <h1 className="text-[28px] font-bold tracking-tight">我的洽谈会话</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
             登录手机号名下的全部供货洽谈，点击即可继续沟通，不再受页面跳转影响。
           </p>
@@ -302,7 +302,7 @@ function SupplierChatContent() {
             <ArrowLeft className="size-3.5" />
             返回提交资料
           </Link>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <h1 className="text-[28px] font-bold tracking-tight">
             {negotiation.product.name} · AI 洽谈
           </h1>
           <p className="mt-1 text-sm text-[var(--muted)]">

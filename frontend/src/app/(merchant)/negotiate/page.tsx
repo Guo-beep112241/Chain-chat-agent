@@ -464,7 +464,7 @@ export default function NegotiatePage() {
             <span className="h-px w-5 bg-[var(--accent)]" />
             实时谈判
           </div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          <h1 className="text-[28px] font-bold tracking-tight">
             {active.supplier.company_name}
           </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">

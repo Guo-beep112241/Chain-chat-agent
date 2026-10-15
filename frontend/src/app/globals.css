@@ -5,24 +5,27 @@
    同时生成对应工具类（bg-paper / text-muted / rounded-card …）。 */
 @theme {
   /* —— 表面与文字 —— */
-  --color-paper: #f7f8fa;          /* 页面底色 */
-  --color-paper-deep: #eef1f6;     /* 次级底色（气泡、占位块） */
+  --color-paper: #e8edf5;          /* 页面底色（冷调浅蓝灰，非纯白） */
+  --color-paper-deep: #dde3ee;     /* 次级底色（气泡、占位块、进度轨道） */
   --color-surface: #ffffff;        /* 卡片表面 */
-  --color-ink: #111827;            /* 主文字 / 深色底 */
-  --color-ink-soft: #1f2937;
-  --color-muted: #667085;          /* 次要文字 */
-  --color-line: #e4e7ec;           /* 分隔线 / 描边 */
+  --color-ink: #1a1a2e;            /* 主文字 / 深色底 */
+  --color-ink-soft: #2a2a42;
+  --color-muted: #6b7280;          /* 次要文字 */
+  --color-line: #e5e7eb;           /* 分隔线 / 描边 */
 
-  /* —— 反色区域（侧栏、深色卡片）—— */
-  --color-surface-inverse: #111827;
+  /* —— 反色区域（聊天气泡、深色块）—— */
+  --color-surface-inverse: #1a1a2e;
   --color-on-inverse: #ffffff;
   --color-on-inverse-muted: rgba(255, 255, 255, .72);
   --color-on-inverse-faint: rgba(255, 255, 255, .48);
 
   /* —— 品牌与语义色 —— */
-  --color-accent: #1d4ed8;
-  --color-accent-strong: #1e40af;
+  /* #3b82f6 与白字对比度约 3.68:1，低于 WCAG AA 的 4.5:1；按品牌规范采用，
+     大字号（数字、badge、按钮）可接受，正文小字请用 --color-accent-strong。 */
+  --color-accent: #3b82f6;
+  --color-accent-strong: #2563eb;
   --color-accent-faint: #dbeafe;
+  /* success 保留绿色语义（「已通过 / 识别一致 / 已保存」），正向数值与强调走蓝色 accent。 */
   --color-success: #26715a;
   --color-success-faint: #dcece5;
   /* #9c6a17 在 --warning-faint 上只有 3.91:1，达不到 WCAG AA 的 4.5；
@@ -32,7 +35,7 @@
   --color-danger: #b23a31;
   --color-danger-strong: #9b3028;
   --color-danger-faint: #f5dedc;
-  --color-ring: #1d4ed8;
+  --color-ring: #3b82f6;
 
   /* —— 深色底专用的语义色（浅色版在深底上对比度不足）—— */
   --color-success-on-dark: #6fd3a8;
@@ -40,34 +43,36 @@
   --color-ai-on-dark: #93c5fd;
 
   /* —— 其它用途 —— */
-  --color-chat-canvas: #f8fafc;    /* 会话消息区底色 */
+  --color-chat-canvas: #eff3f9;    /* 会话消息区底色 */
   --color-scrollbar: #cbd5e1;
 
-  /* —— 圆角阶梯：卡片 16 / 控件 12 / 小标签 8 —— */
+  /* —— 圆角阶梯：卡片 12 / 控件 8 / 徽章 999 —— */
   --radius-chip: 0.5rem;
-  --radius-control: 0.75rem;
-  --radius-card: 1rem;
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
 
   /* —— 阴影阶梯：常态卡片 / 浮层 —— */
-  --shadow-card: 0 1px 0 rgba(31, 41, 55, .02), 0 12px 32px rgba(31, 41, 55, .035);
-  --shadow-pop: 0 24px 48px -12px rgba(16, 24, 40, .18);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, .06);
+  --shadow-pop: 0 16px 32px -12px rgba(26, 26, 46, .18);
 
-  /* —— 字体：中文优先系统字体，避免下载几 MB 的中文字库 —— */
-  --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  /* —— 字体：Inter 用于拉丁/数字，中文回退系统字体，避免下载几 MB 的中文字库 —— */
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
 }
 
 /* 兼容别名：既有代码大量使用 bg-[var(--paper)] / text-[var(--muted)] 这类写法，
    保留同名变量以免一次性重写数百处；新代码可直接用 bg-paper / text-muted。
 
    字号约定（改动界面时请遵守）：
-     text-xs  (12px) —— 正文最小尺寸：提示、警告、脚注、说明句子
-     text-[11px]     —— 仅用于元信息：时间、计数、状态标签、导航小字
-     text-sm  (14px) —— 常规正文与表单
-     text-[10px]     —— 仅允许品牌字标（宽字距的 SUPPLY NEGOTIATOR），不得承载信息
+     text-[28px]      —— 页面主标题（Welcome）
+     text-[15px]      —— 卡片标题（font-weight 600）
+     text-[13px]      —— 正文 / 描述
+     text-[11px]      —— 元信息、标签、辅助
+   现状仍有部分 text-sm(14px) / text-base(16px)，与新阶梯各差 1px，
+   属于可接受的存量；新增界面请按上表取值。
 
-   圆角约定：Tailwind 的 rounded-lg(8) / rounded-xl(12) / rounded-2xl(16)
-   正好等于 --radius-chip / --radius-control / --radius-card，
-   二者数值一致，新代码优先用令牌名，避免以后调阶梯时漏改。 */
+   圆角约定：卡片 12（--radius-card）、控件/输入 8（--radius-control）、
+   徽章 999（rounded-full）；rounded-lg(8) / rounded-xl(12) 与
+   control / card 数值一致，新代码优先用令牌名。 */
 :root {
   --paper: var(--color-paper);
   --paper-deep: var(--color-paper-deep);
@@ -96,17 +101,17 @@
   --chat-canvas: var(--color-chat-canvas);
   --scrollbar: var(--color-scrollbar);
   --radius-chip: 0.5rem;
-  --radius-control: 0.75rem;
-  --radius-card: 1rem;
-  --shadow-card: 0 1px 0 rgba(31, 41, 55, .02), 0 12px 32px rgba(31, 41, 55, .035);
-  --shadow-pop: 0 24px 48px -12px rgba(16, 24, 40, .18);
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, .06);
+  --shadow-pop: 0 16px 32px -12px rgba(26, 26, 46, .18);
 }
 
 * { box-sizing: border-box; }
 html { background: var(--paper); }
 body {
   margin: 0;
-  background: radial-gradient(circle at 95% 0%, rgba(29, 78, 216, .08), transparent 26rem), var(--paper);
+  background: var(--paper);
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -117,6 +122,9 @@ button { cursor: pointer; }
 
 /* 金额、分数、统计数字统一用等宽数字，避免逐帧变化时宽度抖动。 */
 .tnum { font-variant-numeric: tabular-nums; }
+
+/* Lucide 线性图标统一 1.5 描边，视觉更轻盈（规范：stroke-width 1.5）。 */
+svg.lucide { stroke-width: 1.5; }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(8px); }
@@ -148,10 +156,6 @@ button { cursor: pointer; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
-}
-.dot-grid {
-  background-image: radial-gradient(rgba(17, 24, 39, .12) .65px, transparent .65px);
-  background-size: 10px 10px;
 }
 .thin-scrollbar::-webkit-scrollbar { width: 5px; }
 .thin-scrollbar::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 999px; }
