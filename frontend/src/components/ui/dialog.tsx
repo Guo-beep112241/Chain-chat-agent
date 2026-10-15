@@ -64,9 +64,13 @@ export function Dialog({
     const panel = panelRef.current;
     const target = panel?.querySelector<HTMLElement>("input,textarea,select") ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
     target?.focus();
+    // 关闭后把焦点还给「打开它的那个按钮」。否则 Esc 一按焦点掉回 <body>，
+    // 键盘用户下一次 Tab 要从页首重新走一遍。
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus?.();
     };
   }, [open, handleKeyDown]);
 
@@ -74,14 +78,16 @@ export function Dialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-[var(--ink)]/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
+      <div className="anim-fade absolute inset-0 bg-[var(--ink)]/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId.current}
         className={cn(
-          "relative w-full rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-pop)]",
+          // max-h + overflow-y-auto：面板再长也能滚到底，窄屏手机键盘弹起时
+          // 「提交」「注册」这些末尾元素不会被直接裁掉且无法到达。
+          "anim-pop relative max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-pop)]",
           size === "md" ? "max-w-md" : "max-w-sm",
         )}
       >

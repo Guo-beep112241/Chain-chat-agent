@@ -1,21 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Building2, KeyRound, Loader2, PackageOpen, Smartphone, User } from "lucide-react";
-import { BrandMark } from "@/components/brand-mark";
-import { Dialog } from "@/components/ui/dialog";
+import { KeyRound, Loader2, Smartphone, User } from "lucide-react";
+import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+// 演示凭证与 backend/app/config.py 的默认值一致；演示环境的价值就是零摩擦进入，
+// 所以做成一个可点击填入的按钮，而不是让人照着屏幕手打一遍。
+const DEMO = { account: "admin", password: "链谈Agent123", phone: "13800138000" };
+
 export default function LoginPage() {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<"choose" | "buyer">("choose");
   const [mode, setMode] = useState<"password" | "code">("password");
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
@@ -34,34 +35,22 @@ export default function LoginPage() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  function close() {
-    setOpen(false);
-    setStep("choose");
-    setMode("password");
-    setAccount("");
-    setPassword("");
-    setPhone("");
-    setCode("");
-    setDemoCode("");
-    setNotice("");
-    setCountdown(0);
-    setError("");
-  }
-
   function switchMode(next: "password" | "code") {
     setMode(next);
     setError("");
     setNotice("");
     setDemoCode("");
+    // 输入框里的验证码必须一起清掉：它跟 demoCode 是同一轮取码的产物，
+    // 只清展示块会留下一个「看不见但可以直接提交」的旧验证码。
+    // 倒计时保留——它属于手机号而不是当前标签，清了反而会引诱用户连点撞 429。
+    setCode("");
   }
 
-  function goSupplier() {
-    router.push("/supplier");
-  }
-
-  function goRegister() {
-    close();
-    router.push("/register");
+  function fillDemoAccount() {
+    switchMode("password");
+    setAccount(DEMO.account);
+    setPassword(DEMO.password);
+    setError("");
   }
 
   async function sendCode() {
@@ -108,141 +97,188 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <div className="animate-rise w-full max-w-md">
-        <Card className="overflow-hidden">
-          <div className="h-2 bg-[var(--accent)]" />
-          <CardContent className="p-8 sm:p-10">
-            <div className="flex flex-col items-center text-center">
-              <div className="grid size-16 place-items-center rounded-2xl bg-[var(--ink)] shadow-lg">
-                <BrandMark />
-              </div>
-              <h1 className="mt-6 text-3xl font-bold tracking-tight">
-                链谈 <span className="text-[var(--accent)]">Agent</span>
-              </h1>
-              <p className="mt-1 text-[10px] tracking-[.22em] text-[var(--muted)]">SUPPLY NEGOTIATOR</p>
-              <p className="mt-5 max-w-xs text-sm leading-6 text-[var(--muted)]">为中小商家自动接待、筛选和分层供应商的采购谈判工作台。</p>
-            </div>
-            <Button
-              variant="accent"
-              size="lg"
-              className="mt-8 w-full"
-              onClick={() => {
-                setStep("choose");
-                setError("");
-                setOpen(true);
-              }}
-            >
-              登录
-            </Button>
-            <p className="mt-4 text-center text-xs leading-4 text-[var(--muted)]">采购方使用账号密码或手机验证码登录 · 供应商使用手机号验证码登录</p>
-          </CardContent>
-        </Card>
-      </div>
+  const errorId = error ? "login-error" : undefined;
 
-      <Dialog
-        open={open}
-        onClose={close}
-        title={step === "choose" ? "选择进入身份" : "采购方登录"}
-        description={step === "choose" ? "采购方与供应商对应不同的进入方式" : "账号密码或手机验证码两种方式进入采购工作台"}
-        footer={step === "buyer" ? (
-          <>
-            <div className="w-full">
-              <Button variant="accent" size="lg" className="w-full" disabled={submitting} onClick={() => void loginBuyer()}>
-                {submitting ? <Loader2 className="size-4 animate-spin" /> : "登录并进入"}
-              </Button>
-              <div className="mt-4 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] p-3 text-xs leading-5 text-[var(--muted)]">
-                演示凭证：账号 <span className="font-semibold text-[var(--ink)]">admin</span> · 手机号 <span className="font-semibold text-[var(--ink)]">13800138000</span>。验证码为演示码，点击「获取验证码」直接返回。
+  return (
+    <AuthLayout
+      asideTitle="把时间留给真正值得谈的供应商"
+      asideBody="链谈 Agent 自动接待上门的供应商，先按你的采购底线硬性筛选，再按七维权重打分分层。达到标准的才提醒你接手。"
+    >
+      <div className="p-7 sm:p-8">
+        <h1 className="text-[28px] font-bold leading-tight tracking-tight">进入采购工作台</h1>
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+          采购方用账号密码或手机验证码登录；供应商走手机号验证码入口。
+        </p>
+
+        {/* 身份入口做成一行轻量导航，而不是第二个分段控件：
+            两个长得一样的分段控件摞在一起，用户要先分辨「哪一排是身份、哪一排是方式」。
+            这里只留「你在哪、怎么去对面」。 */}
+        <div className="mt-6 flex items-center gap-2 text-xs">
+          <span className="text-[var(--muted)]">当前身份</span>
+          <span className="rounded-full bg-[var(--paper)] px-2.5 py-1 font-semibold text-[var(--ink)]">采购方</span>
+          <Link
+            href="/supplier/login"
+            className="ml-auto font-semibold text-[var(--accent-strong)] underline underline-offset-2 transition-colors hover:text-[var(--accent)]"
+          >
+            我是供应商 →
+          </Link>
+        </div>
+
+        {/* 登录方式切换用两个 aria-pressed 按钮而不是 role="tablist"：
+            真正的 tab 语义要求非激活面板留在 DOM 里用 hidden 隐藏，而这里是互斥渲染——
+            那样写会让其中一个 tab 的 aria-controls 永远指向不存在的 id。
+            按钮语义在这里既准确又不需要自己实现方向键。 */}
+        <div className="mt-3 grid grid-cols-2 gap-1 rounded-[var(--radius-control)] bg-[var(--paper)] p-1">
+          <button
+            type="button"
+            aria-pressed={mode === "password"}
+            onClick={() => switchMode("password")}
+            className={cn(
+              "rounded-[var(--radius-chip)] px-3 py-2 text-xs font-semibold transition-colors",
+              mode === "password" ? "bg-[var(--surface)] text-[var(--ink)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--ink)]",
+            )}
+          >
+            账号密码登录
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "code"}
+            onClick={() => switchMode("code")}
+            className={cn(
+              "rounded-[var(--radius-chip)] px-3 py-2 text-xs font-semibold transition-colors",
+              mode === "code" ? "bg-[var(--surface)] text-[var(--ink)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--ink)]",
+            )}
+          >
+            手机验证码登录
+          </button>
+        </div>
+
+        {mode === "password" ? (
+          <div className="mt-4 space-y-3">
+            <label className="block">
+              <span className="text-xs font-semibold">登录账号</span>
+              <div className="relative mt-2">
+                <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                <Input
+                  className="pl-9"
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                  placeholder="登录账号"
+                  autoComplete="username"
+                  aria-invalid={Boolean(error) && !account.trim()}
+                  aria-describedby={errorId}
+                />
               </div>
-              <p className="mt-4 text-center text-xs text-[var(--muted)]">
-                没有账号？{" "}
-                <button onClick={goRegister} className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
-                  立即注册
-                </button>
-              </p>
-            </div>
-          </>
-        ) : undefined}
-      >
-        {step === "choose" ? (
-          <div className="space-y-3">
-            <button
-              onClick={() => setStep("buyer")}
-              className="flex w-full items-center gap-3 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]/40"
-            >
-              <span className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-control)] bg-[var(--ink)] text-white"><Building2 className="size-5" /></span>
-              <span><span className="block text-sm font-bold">采购方</span><span className="block text-xs text-[var(--muted)]">密码登录，进入采购工作台与实时谈判</span></span>
-            </button>
-            <button
-              onClick={goSupplier}
-              className="flex w-full items-center gap-3 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]/40"
-            >
-              <span className="grid size-10 shrink-0 place-items-center rounded-[var(--radius-control)] bg-[var(--ink)] text-white"><PackageOpen className="size-5" /></span>
-              <span><span className="block text-sm font-bold">供应商</span><span className="block text-xs text-[var(--muted)]">手机号登录，进入供应商入口</span></span>
-            </button>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold">登录密码</span>
+              <div className="mt-2">
+                <PasswordInput
+                  leadingIcon={<KeyRound className="size-4" />}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="登录密码"
+                  autoComplete="current-password"
+                  onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }}
+                  aria-invalid={Boolean(error) && !password}
+                  aria-describedby={errorId}
+                />
+              </div>
+            </label>
           </div>
         ) : (
-          <>
-            <button
-              onClick={() => { setStep("choose"); switchMode("password"); setError(""); setAccount(""); setPassword(""); setPhone(""); setCode(""); setDemoCode(""); setNotice(""); setCountdown(0); }}
-              className="mb-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] transition hover:text-[var(--ink)]"
-            >
-              <ArrowLeft className="size-3.5" />返回身份选择
-            </button>
-
-            <div className="grid grid-cols-2 gap-1 rounded-[var(--radius-control)] bg-[var(--paper)] p-1">
-              <button
-                onClick={() => switchMode("password")}
-                className={cn("rounded-[var(--radius-chip)] px-3 py-2 text-xs font-semibold transition", mode === "password" ? "bg-[var(--surface)] text-[var(--ink)] shadow" : "text-[var(--muted)] hover:text-[var(--ink)]")}
-              >
-                账号密码登录
-              </button>
-              <button
-                onClick={() => switchMode("code")}
-                className={cn("rounded-[var(--radius-chip)] px-3 py-2 text-xs font-semibold transition", mode === "code" ? "bg-[var(--surface)] text-[var(--ink)] shadow" : "text-[var(--muted)] hover:text-[var(--ink)]")}
-              >
-                手机验证码登录
-              </button>
-            </div>
-
-            {mode === "password" ? (
-              <div className="mt-4 space-y-3">
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                  <Input className="pl-9" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="登录账号" />
-                </div>
-                <PasswordInput leadingIcon={<KeyRound className="size-4" />} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="登录密码" onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }} />
+          <div id="panel-code" className="mt-4 space-y-3">
+            <label className="block">
+              <span className="text-xs font-semibold">手机号</span>
+              <div className="relative mt-2">
+                <Smartphone className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                <Input
+                  className="pl-9"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="请输入 11 位手机号"
+                  inputMode="numeric"
+                  maxLength={11}
+                  autoComplete="tel"
+                  aria-describedby={errorId}
+                />
               </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                <div className="relative">
-                  <Smartphone className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                  <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="请输入 11 位手机号" inputMode="numeric" maxLength={11} />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold">验证码</span>
+              <div className="mt-2 flex gap-2">
+                <div className="relative flex-1">
+                  <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+                  <Input
+                    className="pl-9"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    placeholder="6 位验证码"
+                    inputMode="numeric"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    aria-describedby={errorId}
+                  />
                 </div>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <KeyRound className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                    <Input className="pl-9" value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 位验证码" inputMode="numeric" maxLength={6} />
-                  </div>
-                  <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || countdown > 0 || !phone.trim()}>
-                    {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? `${countdown}s` : "获取验证码"}
-                  </Button>
-                </div>
-                {demoCode && (
-                  <div className="rounded-[var(--radius-control)] border border-dashed border-[var(--accent)]/30 bg-[var(--accent-faint)] p-3 text-sm">
-                    <div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div>
-                    <div className="tnum mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
-                    <p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p>
-                  </div>
-                )}
+                <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || countdown > 0}>
+                  {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? `${countdown}s` : "获取验证码"}
+                </Button>
+              </div>
+            </label>
+            {demoCode && (
+              <div className="rounded-[var(--radius-control)] border border-dashed border-[var(--accent)]/40 bg-[var(--accent-faint)] p-3">
+                <div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div>
+                <div className="tnum mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
+                <p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p>
               </div>
             )}
-
-            {error && <div className="mt-3 rounded-[var(--radius-control)] border border-[var(--warning)]/20 bg-[var(--warning-faint)] p-2.5 text-xs text-[var(--warning)]">{error}</div>}
-          </>
+          </div>
         )}
-      </Dialog>
-    </div>
+
+        {error && (
+          <div
+            id="login-error"
+            role="alert"
+            className="mt-3 rounded-[var(--radius-control)] border border-[var(--danger)]/25 bg-[var(--danger-faint)] px-3 py-2.5 text-xs text-[var(--danger)]"
+          >
+            {error}
+          </div>
+        )}
+
+        <Button
+          variant="accent"
+          size="lg"
+          className="mt-5 w-full"
+          disabled={submitting}
+          aria-busy={submitting}
+          onClick={() => void loginBuyer()}
+        >
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
+          {submitting ? "正在进入工作台…" : "登录并进入"}
+        </Button>
+
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5">
+          <span className="text-[11px] leading-5 text-[var(--muted)]">
+            <span className="whitespace-nowrap">演示账号 <span className="tnum font-semibold text-[var(--ink)]">{DEMO.account}</span></span>
+            <span className="whitespace-nowrap"> · 密码 <span className="font-semibold text-[var(--ink)]">{DEMO.password}</span></span>
+            <span className="whitespace-nowrap"> · 手机号 <span className="tnum font-semibold text-[var(--ink)]">{DEMO.phone}</span></span>
+          </span>
+          <button
+            type="button"
+            onClick={fillDemoAccount}
+            className="shrink-0 rounded-[var(--radius-chip)] border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--accent-strong)] transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]"
+          >
+            填入演示账号
+          </button>
+        </div>
+
+        <p className="mt-5 text-center text-xs text-[var(--muted)]">
+          没有账号？{" "}
+          <Link href="/register" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
+            立即注册商家账号
+          </Link>
+        </p>
+      </div>
+    </AuthLayout>
   );
 }

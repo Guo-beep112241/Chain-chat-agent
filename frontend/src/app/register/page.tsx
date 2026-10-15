@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowLeft, Building2, Check, KeyRound, Loader2, Mail, Smartphone, Store, User, X } from "lucide-react";
+import { Check, KeyRound, Loader2, Mail, Smartphone, Store, User, X } from "lucide-react";
+import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { merchantRegister, setMerchantAuth } from "@/lib/api";
@@ -15,16 +15,16 @@ const DRAFT_KEY = "liantan_register_draft";
 
 type Draft = {
   account: string;
-  password: string;
-  confirm: string;
   storeName: string;
   phone: string;
   email: string;
   agree: boolean;
 };
 
+// 草稿里**刻意不存密码**：sessionStorage 同源可读，任何一段第三方脚本都能拿到，
+// 而且浏览器会话恢复会把明文密码留得更久。用户多打一次密码，好过把密码写进存储。
 function emptyDraft(): Draft {
-  return { account: "", password: "", confirm: "", storeName: "", phone: "", email: "", agree: false };
+  return { account: "", storeName: "", phone: "", email: "", agree: false };
 }
 
 function loadDraft(): Draft {
@@ -58,8 +58,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [initial] = useState<Draft>(loadDraft);
   const [account, setAccount] = useState(initial.account);
-  const [password, setPassword] = useState(initial.password);
-  const [confirm, setConfirm] = useState(initial.confirm);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [storeName, setStoreName] = useState(initial.storeName);
   const [phone, setPhone] = useState(initial.phone);
   const [email, setEmail] = useState(initial.email);
@@ -68,8 +68,8 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    saveDraft({ account, password, confirm, storeName, phone, email, agree });
-  }, [account, password, confirm, storeName, phone, email, agree]);
+    saveDraft({ account, storeName, phone, email, agree });
+  }, [account, storeName, phone, email, agree]);
 
   const checks = passwordChecks(password);
   const doneCount = checks.filter((c) => c.ok).length;
@@ -109,105 +109,149 @@ export default function RegisterPage() {
     finally { setSubmitting(false); }
   }
 
-  return (
-    <div className="animate-rise mx-auto flex min-h-[calc(100vh-4rem)] max-w-md flex-col justify-center py-8">
-      <Link href="/" className="mb-6 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"><ArrowLeft className="size-3.5" />返回首页</Link>
+  const errorId = error ? "register-error" : undefined;
 
-      <Card className="overflow-hidden">
-        <div className="h-2 bg-[var(--accent)]" />
-        <CardContent className="p-7 sm:p-8">
-          <div className="flex items-center gap-3">
-            <span className="grid size-11 place-items-center rounded-2xl bg-[var(--ink)] text-white"><Building2 className="size-5" /></span>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">注册商家账号</h1>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">注册成功后自动登录，进入采购工作台</p>
+  return (
+    <AuthLayout
+      asideTitle="先把底线写下来，再让 AI 去谈"
+      asideBody="注册后即可为每个商品配置目标价、硬性上限、起订量、交期与账期，并自定义七维评分权重。规则怎么定，AI 就怎么谈。"
+    >
+      <div className="p-7 sm:p-8">
+        <h1 className="text-[28px] font-bold leading-tight tracking-tight">注册商家账号</h1>
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">注册成功后自动登录，直接进入采购工作台。</p>
+
+        {error && (
+          <div
+            id="register-error"
+            role="alert"
+            className="mt-5 rounded-[var(--radius-control)] border border-[var(--danger)]/25 bg-[var(--danger-faint)] px-3 py-2.5 text-xs text-[var(--danger)]"
+          >
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={submit} className="mt-5 space-y-4">
+          <label className="block">
+            <span className="text-xs font-semibold">登录账号</span>
+            <div className="relative mt-2">
+              <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+              <Input
+                className="pl-9"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                placeholder="3-80 位字母、数字或下划线"
+                autoComplete="username"
+                autoFocus
+                aria-describedby={errorId}
+              />
+            </div>
+          </label>
+
+          <div>
+            <label className="block">
+              <span className="text-xs font-semibold">密码</span>
+              <div className="mt-2">
+                <PasswordInput
+                  leadingIcon={<KeyRound className="size-4" />}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="大于 8 位，且同时包含字母和数字"
+                  autoComplete="new-password"
+                  aria-describedby="register-password-rules"
+                />
+              </div>
+            </label>
+            {/* 三列一行 + 固定行高：原来竖排三行插在「密码」和「确认密码」之间，
+                一输入首字符下面所有字段就整体下移 70px——边填边跳是最容易被记住的廉价感。 */}
+            <div id="register-password-rules" className="mt-2 min-h-[18px]">
+              <span className="block h-1 w-full overflow-hidden rounded-full bg-[var(--line)]">
+                <span
+                  className={cn("block h-full rounded-full transition-[width,background-color]", passwordOk ? "bg-[var(--success)]" : "bg-[var(--accent)]")}
+                  style={{ width: `${(doneCount / 3) * 100}%` }}
+                />
+              </span>
+              <ul className="mt-2 grid grid-cols-3 gap-1">
+                {checks.map((c) => (
+                  <li
+                    key={c.label}
+                    className={cn("flex items-center gap-1 text-[11px] leading-4", c.ok ? "text-[var(--success)]" : "text-[var(--muted)]")}
+                  >
+                    {c.ok ? <Check className="size-3 shrink-0" /> : <X className="size-3 shrink-0" />}
+                    <span className="truncate">{c.label}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
 
-          {error && <div className="mt-4 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning-faint)] p-3 text-sm text-[var(--warning)]">{error}</div>}
+          <label className="block">
+            <span className="text-xs font-semibold">确认密码</span>
+            <div className="mt-2">
+              <PasswordInput
+                leadingIcon={<KeyRound className="size-4" />}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder="再次输入密码"
+                autoComplete="new-password"
+                aria-describedby={errorId}
+              />
+            </div>
+          </label>
 
-          <form onSubmit={submit} className="mt-6 space-y-4">
-            <label>
-              <span className="text-xs font-semibold">登录账号</span>
-              <div className="relative mt-2">
-                <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                <Input className="pl-9" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="3-80 位字母、数字或下划线" autoFocus />
-              </div>
-            </label>
+          <label className="block">
+            <span className="text-xs font-semibold">商家名称</span>
+            <div className="relative mt-2">
+              <Store className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+              <Input className="pl-9" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="例如：小鹿生活馆" aria-describedby={errorId} />
+            </div>
+          </label>
 
-            <label>
-              <span className="text-xs font-semibold">密码</span>
-              <div className="relative mt-2">
-                <PasswordInput leadingIcon={<KeyRound className="size-4" />} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="大于 8 位，且同时包含字母和数字" autoComplete="new-password" />
-              </div>
-              {password.length > 0 && (
-                <div className="mt-2 space-y-2">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--line)]">
-                    <div className={cn("h-full rounded-full transition-all duration-300", passwordOk ? "bg-[var(--success)]" : "bg-[var(--accent)]")} style={{ width: `${(doneCount / 3) * 100}%` }} />
-                  </div>
-                  <ul className="space-y-1">
-                    {checks.map((c) => (
-                      <li key={c.label} className={cn("flex items-center gap-1.5 text-[11px]", c.ok ? "text-[var(--success)]" : "text-[var(--muted)]")}>
-                        {c.ok ? <Check className="size-3.5" /> : <X className="size-3.5" />}
-                        {c.label}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </label>
+          <label className="block">
+            <span className="text-xs font-semibold">绑定手机号</span>
+            <div className="relative mt-2">
+              <Smartphone className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+              <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="11 位手机号" inputMode="numeric" maxLength={11} autoComplete="tel" aria-describedby={errorId} />
+            </div>
+          </label>
 
-            <label>
-              <span className="text-xs font-semibold">确认密码</span>
-              <div className="relative mt-2">
-                <PasswordInput leadingIcon={<KeyRound className="size-4" />} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="再次输入密码" autoComplete="new-password" />
-              </div>
-            </label>
+          <label className="block">
+            <span className="text-xs font-semibold">绑定邮箱</span>
+            <div className="relative mt-2">
+              <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
+              <Input className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" type="email" autoComplete="email" aria-describedby={errorId} />
+            </div>
+          </label>
 
-            <label>
-              <span className="text-xs font-semibold">商家名称</span>
-              <div className="relative mt-2">
-                <Store className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                <Input className="pl-9" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="例如：小鹿生活馆" />
-              </div>
-            </label>
+          {/* checkbox 与链接必须分开：把 <Link> 包在 <label> 里，点链接时部分浏览器
+              会顺手把勾选框也切一下。 */}
+          <div className="flex items-start gap-2 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] p-3">
+            <input
+              id="agree-terms"
+              type="checkbox"
+              checked={agree}
+              onChange={(e) => setAgree(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+            />
+            <div className="text-xs leading-5 text-[var(--muted)]">
+              <label htmlFor="agree-terms" className="cursor-pointer">我已阅读并同意</label>
+              <Link href="/terms" className="mx-1 font-semibold text-[var(--accent-strong)] underline underline-offset-2">《平台须知》</Link>
+              ，知晓平台数据使用与演示说明。
+            </div>
+          </div>
 
-            <label>
-              <span className="text-xs font-semibold">绑定手机号</span>
-              <div className="relative mt-2">
-                <Smartphone className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="11 位手机号" inputMode="numeric" maxLength={11} />
-              </div>
-            </label>
+          <Button type="submit" variant="accent" size="lg" className="w-full" disabled={submitting} aria-busy={submitting}>
+            {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
+            {submitting ? "正在创建账号…" : "注册并进入工作台"}
+          </Button>
+        </form>
 
-            <label>
-              <span className="text-xs font-semibold">绑定邮箱</span>
-              <div className="relative mt-2">
-                <Mail className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-                <Input className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" type="email" />
-              </div>
-            </label>
-
-            <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-[var(--line)] bg-[var(--paper)] p-3">
-              <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]" />
-              <span className="text-xs leading-5 text-[var(--muted)]">
-                我已阅读并同意
-                <Link href="/terms" className="mx-1 font-semibold text-[var(--accent-strong)] underline underline-offset-2">《平台须知》</Link>
-                ，知晓平台数据使用与演示说明。
-              </span>
-            </label>
-
-            <Button type="submit" variant="accent" size="lg" className="w-full" disabled={submitting}>
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : "注册并进入工作台"}
-            </Button>
-          </form>
-
-          <p className="mt-5 text-center text-xs text-[var(--muted)]">
-            已有账号？{" "}
-            <Link href="/login" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">返回登录</Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+        <p className="mt-5 text-center text-xs text-[var(--muted)]">
+          已有账号？{" "}
+          <Link href="/login" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
+            返回登录
+          </Link>
+        </p>
+      </div>
+    </AuthLayout>
   );
 }

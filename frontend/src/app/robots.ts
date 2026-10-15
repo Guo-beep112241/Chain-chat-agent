@@ -9,7 +9,9 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: ["/", "/login", "/register", "/terms", "/supplier/login"],
-        disallow: ["/dashboard", "/negotiate", "/evaluation", "/settings", "/supplier", "/supplier/chat"],
+        // /demo-stage 是首页影片的「摄影棚」，只给 scripts/build-demo-video.mjs 用：
+        // 页面本身已经有 noindex，这里再显式拒一次，别让它被任何爬虫当成产品页面。
+        disallow: ["/dashboard", "/negotiate", "/evaluation", "/settings", "/supplier", "/supplier/chat", "/demo-stage"],
       },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,

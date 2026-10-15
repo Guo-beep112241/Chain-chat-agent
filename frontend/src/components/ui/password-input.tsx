@@ -20,15 +20,17 @@ export function PasswordInput({ leadingIcon, className, ...props }: PasswordInpu
       )}
       <Input
         type={visible ? "text" : "password"}
-        className={cn("pr-10", leadingIcon ? "pl-9" : undefined, className)}
+        className={cn("pr-11", leadingIcon ? "pl-9" : undefined, className)}
         {...props}
       />
       <button
         type="button"
-        tabIndex={-1}
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? "隐藏密码" : "显示密码"}
-        className="absolute right-2 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-[var(--muted)] transition hover:text-[var(--ink)]"
+        aria-pressed={visible}
+        // 这里原来带 tabIndex={-1}：密码可见性切换对键盘用户完全不可达。
+        // 它是有实际功能的开关（不是装饰），必须留在 Tab 顺序里。
+        className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-[var(--radius-chip)] text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
       >
         {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
       </button>

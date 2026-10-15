@@ -50,7 +50,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           return (
             <div
               key={item.id}
-              className={cn("pointer-events-auto flex items-start gap-2.5 rounded-[var(--radius-control)] border px-3.5 py-3 text-sm shadow-[var(--shadow-pop)]", className)}
+              className={cn("anim-pop pointer-events-auto flex items-start gap-2.5 rounded-[var(--radius-control)] border px-3.5 py-3 text-sm shadow-[var(--shadow-pop)]", className)}
             >
               <Icon className="mt-0.5 size-4 shrink-0" />
               <span className="min-w-0 flex-1 leading-6">{item.message}</span>
@@ -58,7 +58,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => remove(item.id)}
                 aria-label="关闭提示"
-                className="grid size-5 shrink-0 place-items-center rounded opacity-70 transition hover:opacity-100"
+                className="grid size-6 shrink-0 place-items-center rounded opacity-70 transition-opacity hover:opacity-100"
               >
                 <X className="size-3.5" />
               </button>

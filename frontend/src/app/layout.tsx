@@ -43,6 +43,20 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
+      <head>
+        {/* 动效开关。为什么必须是首屏同步内联脚本：
+            滚动入场元素的隐藏态写在 `.motion .reveal{opacity:0}` 里，
+            如果等 React 水合后再加类，内容会先完整显示一次再突然消失——
+            那比不做动画更糟。放在这里可以在首次绘制前决定，不闪。
+            它同时也是无障碍兜底：系统开了「减少动态效果」时根本不加这个类，
+            于是所有入场隐藏态都不会落地，页面直接呈现最终状态。 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches&&'IntersectionObserver' in window){document.documentElement.classList.add('motion')}}catch(e){}",
+          }}
+        />
+      </head>
       <body>
         <ToastProvider>{children}</ToastProvider>
       </body>

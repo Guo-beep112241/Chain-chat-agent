@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "film": "node scripts/build-demo-video.mjs",
+    "film:preview": "node scripts/build-demo-video.mjs --preview"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

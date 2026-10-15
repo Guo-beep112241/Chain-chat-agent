@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  // 构建产物目录。默认 .next；渲染首页影片的脚本（scripts/build-demo-video.mjs）
+  // 需要起一个自己的 next dev / next start，如果和本地正在跑的 `npm run dev`
+  // 共用 .next，两边会互相覆盖对方的 chunk（表现为页面 500、JS 全部加载失败）。
+  // 因此给它一个独立目录，互不打扰；Vercel 构建不受影响，仍是 .next。
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
