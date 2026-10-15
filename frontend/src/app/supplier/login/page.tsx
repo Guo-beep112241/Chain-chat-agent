@@ -7,7 +7,7 @@ import { KeyRound, Loader2, Smartphone } from "lucide-react";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { requestSupplierCode, setSupplierAuth, supplierLogin } from "@/lib/api";
+import { consumeSessionExpired, requestSupplierCode, setSupplierAuth, supplierLogin } from "@/lib/api";
 
 export default function SupplierLoginPage() {
   const router = useRouter();
@@ -19,6 +19,11 @@ export default function SupplierLoginPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [countdown, setCountdown] = useState(0);
+  // 供应商令牌失效后会被跳回这里；说明原因，否则看着像是被无故踢出。
+  // 只在挂载后读，避免服务端/客户端首帧不一致造成水合报错。
+  const [expiredNotice, setExpiredNotice] = useState(false);
+
+  useEffect(() => { setExpiredNotice(consumeSessionExpired() === "supplier"); }, []);
 
   // 后端对同一手机号的取码限制是 60 秒 1 次，前端用倒计时对齐，
   // 避免用户连点后撞上 429 只看到一句报错。
@@ -84,6 +89,15 @@ export default function SupplierLoginPage() {
         <p className="mt-4 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5 text-xs leading-5 text-[var(--muted)]">
           演示环境使用假验证码：点击「获取验证码」后会直接显示在页面上，不发送真实短信。
         </p>
+
+        {expiredNotice && (
+          <p
+            role="status"
+            className="mt-3 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5 text-xs leading-5 text-[var(--muted)]"
+          >
+            登录状态已过期，请重新验证手机号后继续。
+          </p>
+        )}
 
         {error && (
           <div

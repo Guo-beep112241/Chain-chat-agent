@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clearMerchantAuth, getDashboardSummary, getMerchantProfile, getMerchantToken, getNegotiations, merchantLogout, updateMerchantProfile, type DashboardSummary, type MerchantProfile, type Negotiation } from "@/lib/api";
+import { clearMerchantAuth, forceLoginRedirect, getDashboardSummary, getMerchantProfile, getMerchantToken, getNegotiations, isAuthError, merchantLogout, updateMerchantProfile, type DashboardSummary, type MerchantProfile, type Negotiation } from "@/lib/api";
 import { subscribeNegotiations } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
@@ -66,6 +66,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
 
+  // 会话失效只处理一次：loadOverview 每 30 秒跑一次，重复跳转会打断登录页。
+  const sessionEndedRef = useRef(false);
+  const endExpiredSession = useCallback(() => {
+    if (sessionEndedRef.current) return;
+    sessionEndedRef.current = true;
+    forceLoginRedirect("admin");
+  }, []);
+
   // 铃铛 = 待接管提醒：达到人工接管标准、AI 仍在线的会话（后端不再写入 manual_required 状态）。
   // 同时拉取工作台汇总，用于侧栏展示真实接待数据（不再使用写死的演示数字）。
   const loadOverview = useCallback(async () => {
@@ -73,11 +81,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const items = await getNegotiations();
       setPending(items.filter(item => item.classification === "qualified" && item.status === "ai_active"));
       setOnline(true);
-    } catch { setOnline(false); }
+    } catch (e) {
+      // 令牌过期（默认 30 天）时所有商家接口都会 401。此前这里只把「在线」标成 false，
+      // 页面继续留在工作台上显示「服务暂时不可用 / 数据未能加载」，用户只会以为后端或数据库坏了。
+      // 现在明确区分：登录态失效就清掉本地令牌并回登录页。
+      if (isAuthError(e)) { endExpiredSession(); return; }
+      setOnline(false);
+    }
     try {
       setSummary(await getDashboardSummary());
-    } catch { /* 汇总接口不可达时保留上一次数据，不展示占位数字 */ }
-  }, []);
+    } catch (e) {
+      if (isAuthError(e)) { endExpiredSession(); return; }
+      /* 汇总接口不可达时保留上一次数据，不展示占位数字 */
+    }
+  }, [endExpiredSession]);
   useEffect(() => {
     // 未登录时不要发起请求：否则会在跳转回登录页之前打出一串 401。
     if (!isBuyer) return;
@@ -99,8 +116,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     setIsBuyer(true);
     setAuthChecked(true);
-    getMerchantProfile().then(profile => { setMerchant(profile); setProfileForm(profile); }).catch(() => { /* 后端不可达时静默，保留默认显示 */ });
-  }, [router]);
+    getMerchantProfile()
+      .then(profile => { setMerchant(profile); setProfileForm(profile); })
+      .catch(e => {
+        // 本地有令牌但服务端不认（过期 / 已改密吊销）：同样属于登录态失效，必须回登录页。
+        if (isAuthError(e)) { endExpiredSession(); return; }
+        /* 后端不可达时静默，保留默认显示 */
+      });
+  }, [router, endExpiredSession]);
 
   function openProfile() {
     setMenuOpen(false);

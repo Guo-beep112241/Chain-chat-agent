@@ -35,6 +35,60 @@ export function clearMerchantAuth() {
   try { window.localStorage.removeItem(MERCHANT_TOKEN_KEY); } catch { /* ignore */ }
 }
 
+/** HTTP 层面的失败：带状态码，调用方可以据此区分「登录失效」与「网络/服务异常」。 */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** 登录态已失效（401/403）。调用方应清掉本地令牌并回登录页，而不是把页面留在半死状态。 */
+export function isAuthError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+// 「这次为什么回到登录页」记在 sessionStorage 里：登录页读一次即清，
+// 免去用 useSearchParams（那需要额外包 Suspense 才不破坏静态导出）。
+const SESSION_EXPIRED_KEY = "liantan_session_expired";
+
+function markSessionExpired(auth: "admin" | "supplier") {
+  if (typeof window === "undefined") return;
+  try { window.sessionStorage.setItem(SESSION_EXPIRED_KEY, auth); } catch { /* ignore */ }
+}
+
+/** 登录页挂载时调用：取走并清掉「登录已过期」标记，用于给用户一句说明。 */
+export function consumeSessionExpired(): "admin" | "supplier" | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(SESSION_EXPIRED_KEY);
+    if (value === null) return null;
+    window.sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+    return value === "admin" || value === "supplier" ? value : null;
+  } catch { return null; }
+}
+
+/**
+ * 令牌失效时的统一收尾：清本地登录态 → 记下原因 → 回对应登录页。
+ *
+ * 走整页跳转（而不是 router.replace）是刻意的：会话已经失效，
+ * 客户端里缓存的资料、轮询定时器、SSE 订阅都该随之作废，重载最干净。
+ */
+export function forceLoginRedirect(auth: "admin" | "supplier", next?: string) {
+  if (typeof window === "undefined") return;
+  markSessionExpired(auth);
+  if (auth === "admin") clearMerchantAuth();
+  else clearSupplierAuth();
+  if (auth === "supplier") {
+    const target = next && next.startsWith("/supplier") ? `?next=${encodeURIComponent(next)}` : "";
+    window.location.replace(`/supplier/login${target}`);
+    return;
+  }
+  window.location.replace("/login");
+}
+
 export type SupplierOffer = {
   product_id: number;
   company_name: string;
@@ -259,7 +313,7 @@ async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "no
   }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(await explainFailure(response.status, body, path));
+    throw new ApiError(await explainFailure(response.status, body, path), response.status);
   }
   const body = await response.json().catch(() => null);
   if (body === null) {

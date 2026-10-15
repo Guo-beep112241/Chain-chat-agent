@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { evaluateSupplierOffer, getProductCatalog, getSupplierPhone, getSupplierToken, uploadQualificationFile, type ManagedProduct, type QualificationFile } from "@/lib/api";
+import { evaluateSupplierOffer, forceLoginRedirect, getProductCatalog, getSupplierPhone, getSupplierToken, isAuthError, uploadQualificationFile, type ManagedProduct, type QualificationFile } from "@/lib/api";
 import { DEBUG_TOOLS_ENABLED, QUALIFICATION_OPTIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -63,7 +63,16 @@ export default function SupplierPage() {
   useEffect(() => {
     getProductCatalog()
       .then((items) => { setProducts(items); setProductId(items[0]?.id ?? null); })
-      .catch(() => setProducts([]))
+      .catch((e) => {
+        // 令牌失效（默认 30 天到期，或已在别处登出）必须回登录页：
+        // 此前这里静默置空，页面会显示「采购方尚未启用商品」这种误导性的空态，
+        // 用户根本看不出是自己需要重新登录。
+        if (isAuthError(e)) {
+          forceLoginRedirect("supplier", window.location.pathname + window.location.search);
+          return;
+        }
+        setProducts([]);
+      })
       .finally(() => setProductsLoading(false));
   }, []);
 

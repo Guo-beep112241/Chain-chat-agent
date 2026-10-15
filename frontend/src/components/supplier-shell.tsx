@@ -23,6 +23,7 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
   // 服务端(false)/浏览器(true) 渲染出的结构不一致，React 会整棵树重新生成并报 hydration 错误。
   const [token, setToken] = useState<string | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // 路由变化时收起所有浮层，并同步重读登录态（登录与退出都伴随跳转，靠 pathname 触发即可）。
   useEffect(() => {
@@ -32,13 +33,25 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
     const next = getSupplierToken();
     setToken(next);
     setLoggedIn(Boolean(next));
-  }, [pathname]);
+    setAuthChecked(true);
+    // 未登录时不要把子页面渲染出来：/supplier 与 /supplier/chat 挂载即拉数据，
+    // 先渲染就等于先打出一串注定 401 的请求（商家侧早已这样处理，供应商侧此前漏了）。
+    if (!next && pathname !== "/supplier/login") {
+      const here = window.location.pathname + window.location.search;
+      router.replace(`/supplier/login?next=${encodeURIComponent(here)}`);
+    }
+  }, [pathname, router]);
 
   // 登录身份（token）变化时清空缓存的会话，避免退出换号后仍显示上一手机号的洽谈。
   useEffect(() => { setSessions(null); setSessionsError(""); }, [token]);
 
   // 登录页不渲染顶栏。
   if (pathname === "/supplier/login") return <>{children}</>;
+
+  // 未登录时不渲染子页面，避免「先发请求再跳转」；与商家端 AppShell 保持同一套写法。
+  if (!authChecked || !loggedIn) {
+    return <div className="grid min-h-screen place-items-center text-sm text-[var(--muted)]">正在校验登录状态…</div>;
+  }
 
   async function toggleSessions() {
     setSessionsOpen((open) => !open);

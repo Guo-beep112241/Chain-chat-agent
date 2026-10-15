@@ -16,9 +16,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ChatMessageList } from "@/components/chat-message";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  forceLoginRedirect,
   getNegotiation,
   getSupplierNegotiations,
   getSupplierToken,
+  isAuthError,
   sendSupplierMessage,
   type Negotiation,
 } from "@/lib/api";
@@ -149,6 +151,9 @@ function SupplierChatContent() {
         try {
           setSessions(await getSupplierNegotiations());
         } catch (e) {
+          // 令牌失效：清掉本地登录态并回登录页。此前只显示一句「登录已失效」，
+          // 页面却留在原地，用户除了手动退出没有别的出路。
+          if (isAuthError(e)) { forceLoginRedirect("supplier", window.location.pathname + window.location.search); return; }
           setError(e instanceof Error ? e.message : "无法读取洽谈会话");
         } finally {
           setLoading(false);
@@ -159,6 +164,7 @@ function SupplierChatContent() {
         setNegotiation(await getNegotiation(target));
         setError("");
       } catch (e) {
+        if (isAuthError(e)) { forceLoginRedirect("supplier", window.location.pathname + window.location.search); return; }
         setError(e instanceof Error ? e.message : "无法读取谈判会话");
       } finally {
         setLoading(false);

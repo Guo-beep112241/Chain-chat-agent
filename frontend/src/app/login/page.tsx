@@ -8,7 +8,7 @@ import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
-import { merchantCodeLogin, merchantLogin, requestMerchantCode, setMerchantAuth } from "@/lib/api";
+import { merchantCodeLogin, merchantLogin, requestMerchantCode, consumeSessionExpired, setMerchantAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
@@ -24,6 +24,11 @@ export default function LoginPage() {
   const [countdown, setCountdown] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // 「为什么突然回到登录页」要说清楚，否则用户只会以为系统坏了。
+  // 只在挂载后读：服务端没有 sessionStorage，写在 render 里会造成水合不一致。
+  const [expiredNotice, setExpiredNotice] = useState(false);
+
+  useEffect(() => { setExpiredNotice(consumeSessionExpired() !== null); }, []);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -98,6 +103,15 @@ export default function LoginPage() {
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
           采购方用账号密码或手机验证码登录；供应商走手机号验证码入口。
         </p>
+
+        {expiredNotice && (
+          <p
+            role="status"
+            className="mt-4 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5 text-xs leading-5 text-[var(--muted)]"
+          >
+            登录状态已过期（令牌默认 30 天有效），请重新登录后继续。
+          </p>
+        )}
 
         {/* 身份入口做成一行轻量导航，而不是第二个分段控件：
             两个长得一样的分段控件摞在一起，用户要先分辨「哪一排是身份、哪一排是方式」。
