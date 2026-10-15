@@ -214,3 +214,19 @@ def test_health_reports_version_for_frontend_diagnostics(monkeypatch):
     body = client.get("/api/health").json()
     assert body["status"] == "ok"
     assert body["version"]
+
+
+def test_supplier_code_requests_do_not_consume_merchant_ip_quota(monkeypatch):
+    """供应商取码与商家取码各算各的 IP 额度。
+
+    两者原先共用 otp:ip 桶（8 次/小时），同一出口 IP 上供应商侧多试几次，
+    商家侧就会在第一次取码时被判定「请求过于频繁」。
+    """
+    client = make_client(monkeypatch)
+    for index in range(8):
+        response = client.post("/api/auth/supplier/request-code", json={"phone": f"1370000000{index}"})
+        assert response.status_code == 200, response.text
+    # 供应商侧已用满 8 次
+    assert client.post("/api/auth/supplier/request-code", json={"phone": "13700000099"}).status_code == 429
+    # 商家侧额度不受影响
+    assert client.post("/api/auth/merchant/request-code", json={"phone": "13800138000"}).status_code == 200

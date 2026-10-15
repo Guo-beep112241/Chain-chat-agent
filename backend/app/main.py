@@ -310,8 +310,11 @@ def health_ready(db: Session = Depends(get_db)) -> dict:
 def request_supplier_code(payload: SupplierCodeRequest, request: Request):
     phone = payload.phone.strip()
     # 验证码端点是最容易被刷的入口：不限流就会被用来短信轰炸或枚举手机号。
-    enforce(request, scope="otp:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
-    enforce(request, scope="otp:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
+    # 供应商与采购方用各自的 IP 桶：两者原先共用 otp:ip，供应商侧多试几次
+    # 就会把商家侧的取码额度一起吃掉（同一办公室/同一出口 IP 时尤其明显），
+    # 表现为「明明是第一次取商家验证码却提示请求过于频繁」。限额本身不变。
+    enforce(request, scope="otp:supplier:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
+    enforce(request, scope="otp:supplier:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
     code = issue_code(phone)
     if not settings.demo_mode:
         # 非演示模式必须真的把验证码发出去。当前没有接入短信服务商，
@@ -392,8 +395,8 @@ def merchant_register(payload: MerchantRegisterIn, request: Request, db: Session
 @app.post("/api/auth/merchant/request-code", response_model=MerchantCodeOut)
 def request_merchant_code(payload: MerchantCodeRequest, request: Request, db: Session = Depends(get_db)):
     phone = payload.phone.strip()
-    enforce(request, scope="otp:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
-    enforce(request, scope="otp:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
+    enforce(request, scope="otp:merchant:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
+    enforce(request, scope="otp:merchant:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
     account = get_merchant_by_phone(db, phone)
     if account is None:
         # 文案必须给出下一步动作：早期只写「未绑定」，用户只会反复重试同一个手机号。
