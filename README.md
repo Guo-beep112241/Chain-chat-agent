@@ -87,6 +87,14 @@ BAIDU_SECRET_KEY=your-baidu-secret-key
 这是刻意的：存量库（本地 SQLite 与线上 Supabase）此前由 `create_all` + 启动期补列维护，
 在确认基线正确之前不改动启动逻辑。
 
+需要注意的是「启动期补列」和「Alembic」是两条不同的路径，别把它们混起来：
+
+| 场景 | 走哪条路 |
+| --- | --- |
+| 存量库缺了新加的列（本地 SQLite、线上 Supabase 都一样） | 启动时自动补，见下一节 `_patch_missing_columns` |
+| 全新环境建库 | `alembic upgrade head` |
+| 改类型 / 改约束 / 删列 / 数据迁移 | 新增 Alembic 修订并 `upgrade head` |
+
 ```bash
 cd backend
 
@@ -104,6 +112,8 @@ cd backend
 `tests/test_migrations.py` 会在临时库上分别用「迁移」和「模型 create_all」建表，
 再逐项比对表、列、索引、唯一约束、外键与主键——**基线是否与模型一致由测试保证**，
 而不是靠人工核对。因此每次改模型后请重新生成迁移，否则该用例会失败。
+`tests/test_schema_patch.py` 则盯着启动期补列那条路：老库能被补齐、老数据不丢、
+补列可重复执行、没有默认值的列必须按可空列加（2026-10 的部署事故就是它只认 SQLite 造成的）。
 
 > 接入 Alembic 之前的老做法（README 旧版本提到的「PostgreSQL 需手动 ALTER TABLE」）
 > 不再需要：stamp 之后就由 `upgrade head` 负责。
@@ -116,7 +126,29 @@ cd backend
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres
 ```
 
-> 说明：SQLite 本地库的加列/回填迁移在启动时自动完成；PostgreSQL 不会自动为已存在的表加列，首次切换到新版本若涉及新增字段（如本次多商家的 `merchant_id`、`email`），需先在数据库手动执行 `ALTER TABLE` 后再启动。
+> 说明：**存量库缺列由后端启动时自动补齐，SQLite 与 PostgreSQL 都生效**。
+> `Base.metadata.create_all` 只会建表、不会给已存在的表加列，因此启动流程里还有一步
+> `_patch_missing_columns`：用 SQLAlchemy inspector 比对模型与真实库，缺哪列补哪列
+> （模型里声明了常量默认值的列连 `DEFAULT` 与 `NOT NULL` 一起补；其余列按可空列加，
+> 留 NULL 交给随后的 `_backfill_merchant_ids` / seed 回填，绝不凭空造 0）。
+> 补了哪些列会打印一条 WARNING，例如：
+>
+> ```text
+> WARNING 存量库缺列，已自动补齐：merchant_accounts.account, merchant_accounts.phone, merchant_accounts.email
+> ```
+>
+> 部署后如果那台后端起来了、但登录报「账号或密码错误」，那是**旧商家行里原来的密码哈希**
+> 在起作用（seed 不会覆盖已存在商家的密码）——与本次结构修复无关，用当初设置的 `MERCHANT_PASSWORD` 登录，
+> 或注册一个新商家账号。
+>
+> 这条自愈路径只做加法（加列、把旧的商品名全局唯一索引改成普通索引）。改类型、改约束、
+> 删列这类真正的迁移仍然走 Alembic，见上一节。
+>
+> 因此**老库补出来的列会比模型「松」一点**：没有声明默认值的列（`account`/`phone`/`email`、
+> `merchant_id` 这些）是可空的，也缺少模型上声明的唯一索引。这是刻意的取舍——
+> 唯一索引若在补列时创建，遇到历史行里有重复值会让启动再次崩掉，而这正是我们要修的故障。
+> 唯一性目前由注册接口在应用层保证；要把老库收紧到与模型一致，就在 `alembic stamp head`
+> 之后补一条迁移来加 `NOT NULL` 与唯一索引。
 
 ## 使用流程
 

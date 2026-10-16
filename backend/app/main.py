@@ -11,7 +11,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -49,8 +49,8 @@ async def lifespan(_: FastAPI):
     setup_logging(json_output=json_logs)
     logger.info("服务启动", extra={"environment": settings.environment, "demo_mode": settings.demo_mode})
     Base.metadata.create_all(bind=engine)
-    _patch_sqlite_columns(engine)
-    _drop_products_name_unique_index(engine)
+    _patch_missing_columns(engine)
+    _normalize_products_name_index(engine)
     with SessionLocal() as db:
         merchant = seed_merchant_account(db)
         _backfill_merchant_ids(db, merchant.id)
@@ -58,45 +58,72 @@ async def lifespan(_: FastAPI):
     yield
 
 
-def _patch_sqlite_columns(engine) -> None:
-    """create_all 只建表不加列：给旧演示库补齐后续新增字段（仅 SQLite 本地库）。"""
-    if engine.dialect.name != "sqlite":
-        return
-    patches = {
-        "qualification_files": (
-            ("ocr_status", "VARCHAR(32) DEFAULT 'not_checked'"),
-            ("ocr_company", "VARCHAR(255) DEFAULT ''"),
-            ("ocr_detail", "VARCHAR(500) DEFAULT ''"),
-            ("data", "BLOB"),
-        ),
-        "procurement_rules": (
-            ("scoring_model", "VARCHAR(32) DEFAULT 'custom_rule'"),
-            ("score_weights", "TEXT"),
-            ("ml_model", "VARCHAR(32) DEFAULT 'decision_tree'"),
-            ("ml_qualify_threshold", "FLOAT DEFAULT 0.5"),
-            ("ml_eliminate_threshold", "FLOAT DEFAULT 0.5"),
-        ),
-        "merchant_accounts": (
-            ("account", "VARCHAR(80) DEFAULT ''"),
-            ("phone", "VARCHAR(40) DEFAULT ''"),
-            ("email", "VARCHAR(160) DEFAULT ''"),
-        ),
-        "products": (("merchant_id", "INTEGER"),),
-        "suppliers": (("merchant_id", "INTEGER"),),
-        "negotiations": (("merchant_id", "INTEGER"),),
-    }
+def _patch_missing_columns(engine) -> None:
+    """create_all 只建表、不加列：启动时把存量库里缺的列补上。
+
+    为什么必须对所有方言生效：线上是 Supabase（PostgreSQL），表是更早版本的
+    create_all 建的。这里以前只处理 SQLite（`PRAGMA table_info`），于是线上库
+    永远补不上后续新增的列——seed 一查 merchant_accounts.account 就 UndefinedColumn，
+    服务在启动阶段直接退出（2026-10 的 Render 部署事故就是这个）。
+
+    规则（只做加法，不改类型、不改约束、不删列）：
+      · 模型里声明了常量默认值的新列 → `ADD COLUMN ... DEFAULT <值> NOT NULL`，与模型一致；
+      · 其余新列 → 按**可空列**加上。
+        这一条是刻意的：存量表已有数据，凭空造一个默认值（比如给 merchant_id 填 0）
+        会让启动期的 _backfill_merchant_ids 找不到这些行，历史数据等于丢了；
+        留 NULL 则与「老库从没写过这列」的语义一致，由 backfill 写入正确值。
+    补了哪些列会以 WARNING 记进日志，方便在部署日志里确认修复生效。
+    """
+    inspector = inspect(engine)
+    added: list[str] = []
     with engine.begin() as conn:
-        for table, columns_spec in patches.items():
-            existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
-            for name, ddl in columns_spec:
-                if name not in existing:
-                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                conn.exec_driver_sql(_add_column_sql(engine.dialect, table.name, column))
+                added.append(f"{table.name}.{column.name}")
+    if added:
+        logger.warning("存量库缺列，已自动补齐：%s", ", ".join(added))
 
 
-def _drop_products_name_unique_index(engine) -> None:
-    """多商家下商品名改为「商家内唯一」：删除旧库全局唯一索引，重建为普通索引（仅 SQLite）。"""
-    if engine.dialect.name != "sqlite":
-        return
+def _add_column_sql(dialect, table_name: str, column) -> str:
+    """拼一条 ADD COLUMN。列类型直接取自模型，避免在这里再抄一份类型定义。"""
+    sql = f"ALTER TABLE {table_name} ADD COLUMN {column.name} {column.type.compile(dialect)}"
+    default = _declared_default_literal(column)
+    if default is not None:
+        sql += f" DEFAULT {default}"
+        if not column.nullable:
+            sql += " NOT NULL"
+    return sql
+
+
+def _declared_default_literal(column) -> str | None:
+    """取模型里声明的常量默认值，转成 SQL 字面量；没有就返回 None（按可空列补）。"""
+    default = column.default
+    if default is None or default.is_callable or default.is_sequence:
+        return None
+    value = default.arg
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    # bytes / datetime 之类没有可移植的字面量写法（BLOB 的空值 SQLite 写 x''、
+    # PostgreSQL 写 '\x'::bytea），按可空列补，实际值由应用层写入。
+    return None
+
+
+def _normalize_products_name_index(engine) -> None:
+    """多商家下商品名改为「商家内唯一」：删掉旧库的全局唯一索引，重建为普通索引。
+
+    改名与括号里的 SQL 在 SQLite 与 PostgreSQL 上写法一致，因此不再按方言分支——
+    线上 PostgreSQL 库同样带着旧版本的唯一索引，不处理的话两个商家不能有同名商品。
+    """
     with engine.begin() as conn:
         conn.exec_driver_sql("DROP INDEX IF EXISTS ix_products_name")
         conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)")
