@@ -37,10 +37,8 @@ import { cn } from "@/lib/utils";
 const FILM_SCORES = { first: 62, final: 86 } as const;
 
 /**
- * 每种语言一套素材。英文素材要用 /demo-stage?lang=en 采：录制脚本
- * （scripts/build-demo-video.mjs）默认只打 /demo-stage、输出名也写死为 negotiation.mp4 /
- * negotiation-poster.jpg，录英文片时需要把页面地址与输出名指到这两条 -en 路径上，
- * 否则会把中文素材覆盖掉。
+ * 每种语言一套素材，用 `npm run film` / `npm run film:en` 分别录制
+ * （脚本会把 /demo-stage?lang=en 与 -en 输出名一起管好，不会互相覆盖）。
  */
 const FILM_ASSETS: Record<Locale, { video: string; poster: string }> = {
   zh: { video: "/demo/negotiation.mp4", poster: "/demo/negotiation-poster.jpg" },
@@ -55,6 +53,36 @@ export function ProductFilm({ className }: { className?: string }) {
 
   const t = d.film.player;
   const asset = FILM_ASSETS[locale];
+
+  // 用 ref 记「当前是不是在播」：换素材时要延续用户的选择（他手动暂停过就保持暂停），
+  // 但 playing 不能进下面那个 effect 的依赖——否则每次点暂停都会重载一次素材。
+  const playingRef = React.useRef(true);
+  React.useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
+
+  // 换语言 = 换素材，这里必须显式重载。
+  // 曾经的写法是把 <source src> 挂在 <video> 里：React 只改了 <source> 的属性，
+  // 浏览器不会因此重跑「资源选择算法」，于是英文界面继续播中文片子
+  // （表现为 currentSrc 还是 negotiation.mp4，而 sourceSrc 已经变成 -en）。
+  // 现在两件事一起做：src 直接写在 <video> 上（改 src 属性本身就会触发重载），
+  // 再显式 load() 一次兜底；同时清掉上一语言留下的 failed，
+  // 否则中文素材 404 过一次之后，英文素材永远不再尝试。
+  React.useEffect(() => {
+    setFailed(false);
+    const video = videoRef.current;
+    if (!video) return;
+    video.load();
+    if (playingRef.current) {
+      void video.play().catch(() => {
+        /* 自动播放被浏览器策略拦下时保留首帧（poster），不影响布局与后续手动播放 */
+      });
+    } else {
+      // autoPlay 属性会让新素材一加载就自己播起来，用户手动暂停过就必须再按回去——
+      // 暂停按钮是 WCAG 2.2.2 要求的可停控件，不能因为换了语言就失效。
+      video.pause();
+    }
+  }, [asset.video]);
 
   function toggle() {
     const video = videoRef.current;
@@ -78,6 +106,7 @@ export function ProductFilm({ className }: { className?: string }) {
           <video
             ref={videoRef}
             className="film-video absolute inset-0 size-full object-cover"
+            src={asset.video}
             poster={asset.poster}
             autoPlay
             muted
@@ -87,9 +116,7 @@ export function ProductFilm({ className }: { className?: string }) {
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
             onError={() => setFailed(true)}
-          >
-            <source src={asset.video} type="video/mp4" />
-          </video>
+          />
         )}
 
         {/* 静态替代帧。显示与否主要交给 CSS 的 prefers-reduced-motion 媒体查询，

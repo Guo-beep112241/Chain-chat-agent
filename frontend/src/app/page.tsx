@@ -59,18 +59,23 @@ export default async function LandingPage() {
             <a className="transition-colors hover:text-[var(--ink)]" href="#supplier">{t.nav.supplier}</a>
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {/* 语言切换放在右上角的第一位：它是全局偏好，不该被任何一个 CTA 挤掉；
-                主 CTA（商家登录）仍留在最右侧，符合「最右=最主要动作」的既有版式。 */}
-            <LanguageSwitcher />
-            {/* 供应商快捷入口只在 560–767px 出现：更窄放不下（英文界面下品牌名与主 CTA
-                已经把顶栏占满，硬塞会让整页被手机缩小）；而 ≥768px 顶栏导航里本来就有
-                「供应商入口」，再放一个是重复。正文与页脚始终留有入口。 */}
-            <Link href="/supplier/login" className="hidden min-[560px]:block md:hidden">
+            {/* 顶栏右侧分两层：
+                业务动作（供应商入口 → 商家登录）保持原有次序与位置，
+                语言切换是站点级工具，放到最外侧的角落里、并用一条细分割线与动作分开，
+                避免和「登录 / 供货」这类动作混成一组被误点。
+                语言按钮在 <lg 时是「地球 + 目标语言」的单按钮（分段控件只在桌面出现），
+                省下的宽度正好让供应商快捷入口从 460px 起就留在顶栏（原来要 560px）；
+                768–1023px 这一档顶栏最挤，而导航里本来就有「供应商入口」，这一段先让位；
+                ≥1024px 桌面端空间充裕，快捷入口照旧显示（与改造前的观感一致）。
+                460px 是实测出来的：英文界面下「品牌 + 语言 + Supplier + Sign in」正好 451px，
+                再窄就得让整页被手机缩小，那比少一个快捷入口更糟；正文与页脚始终留有入口。 */}
+            <Link href="/supplier/login" className="hidden min-[460px]:block md:hidden lg:block">
               <Button variant="ghost" size="sm">{t.header.supplierEntry}</Button>
             </Link>
             <Link href="/login">
               <Button variant="accent" size="sm">{t.header.merchantLogin}</Button>
             </Link>
+            <LanguageSwitcher className="sm:ml-0.5 sm:border-l sm:border-[var(--line)] sm:pl-2.5" />
           </div>
         </div>
       </header>

@@ -105,8 +105,9 @@ export const home = defineDict({
       supplier: "Supplier portal",
     },
     header: {
-      // 顶栏按钮：英文刻意取短词（"I'm a supplier" / "Buyer login" 会把 375px 的顶栏撑溢出）
-      supplierEntry: "I'm a supplier",
+      // 顶栏按钮：英文刻意取短词。"I'm a supplier"（128px）会让 375–420px 的顶栏溢出，
+      // 而顶栏里紧挨着「Sign in」，一个 Supplier 已经足够清楚（正文与页脚里仍是完整说法）。
+      supplierEntry: "Supplier",
       merchantLogin: "Sign in",
     },
     hero: {
