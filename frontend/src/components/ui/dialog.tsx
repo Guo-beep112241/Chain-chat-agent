@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -30,6 +31,7 @@ export function Dialog({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useRef(`dialog-title-${Math.random().toString(36).slice(2, 9)}`);
+  const { d } = useI18n();
 
   // Esc 关闭 + Tab 焦点陷阱
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
@@ -99,7 +101,7 @@ export function Dialog({
           <button
             type="button"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={d.common.a11y.close}
             className="grid size-8 shrink-0 place-items-center rounded-[var(--radius-chip)] border border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
           >
             <X className="size-4" />

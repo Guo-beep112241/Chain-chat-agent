@@ -24,6 +24,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { evaluateSupplierOffer, forceLoginRedirect, getProductCatalog, getSupplierPhone, getSupplierToken, isAuthError, uploadQualificationFile, type ManagedProduct, type QualificationFile } from "@/lib/api";
 import { DEBUG_TOOLS_ENABLED, QUALIFICATION_OPTIONS } from "@/lib/constants";
+import { useI18n } from "@/lib/i18n/client";
+import { qualificationLabel } from "@/lib/i18n/enums";
+import { format, unitWord } from "@/lib/i18n/types";
 import { cn } from "@/lib/utils";
 
 type BottomLine = { label: string; spec: string; current: string; ok: boolean; hard: boolean; hint?: string };
@@ -31,6 +34,8 @@ type BottomLine = { label: string; spec: string; current: string; ok: boolean; h
 const EMPTY_FORM = { company: "", contact: "", phone: "", price: "", moq: "", region: "", leadTime: "", payment: "", cooperation: "" };
 
 export default function SupplierPage() {
+  const { locale, d } = useI18n();
+  const t = d.supplier;
   const [products, setProducts] = useState<ManagedProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [submitted, setSubmitted] = useState(false);
@@ -78,15 +83,15 @@ export default function SupplierPage() {
 
   // 必填项逐项判定，用于字段级提示与完成度进度，而不是只在提交时给一个总布尔值。
   const requiredFields = useMemo(() => ([
-    { key: "product", label: "供货商品", ok: Boolean(product) },
-    { key: "company", label: "企业名称", ok: Boolean(form.company.trim()) },
-    { key: "contact", label: "联系人", ok: Boolean(form.contact.trim()) },
-    { key: "region", label: "所在地区", ok: Boolean(form.region.trim()) },
-    { key: "leadTime", label: "备货周期", ok: Boolean(form.leadTime) },
-    { key: "price", label: "含税单价", ok: Boolean(form.price) },
-    { key: "moq", label: "最低起订量", ok: Boolean(form.moq) },
-    { key: "payment", label: "账期", ok: Boolean(form.payment) },
-  ]), [product, form.company, form.contact, form.region, form.leadTime, form.price, form.moq, form.payment]);
+    { key: "product", label: t.offer.required.product, ok: Boolean(product) },
+    { key: "company", label: t.offer.required.company, ok: Boolean(form.company.trim()) },
+    { key: "contact", label: t.offer.required.contact, ok: Boolean(form.contact.trim()) },
+    { key: "region", label: t.offer.required.region, ok: Boolean(form.region.trim()) },
+    { key: "leadTime", label: t.offer.required.leadTime, ok: Boolean(form.leadTime) },
+    { key: "price", label: t.offer.required.price, ok: Boolean(form.price) },
+    { key: "moq", label: t.offer.required.moq, ok: Boolean(form.moq) },
+    { key: "payment", label: t.offer.required.payment, ok: Boolean(form.payment) },
+  ]), [product, form.company, form.contact, form.region, form.leadTime, form.price, form.moq, form.payment, t]);
 
   const missingFields = requiredFields.filter((item) => !item.ok);
   const doneCount = requiredFields.length - missingFields.length;
@@ -103,7 +108,7 @@ export default function SupplierPage() {
         setQualFiles((current) => [...current, uploaded]);
       }
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "上传失败，请重试");
+      setUploadError(e instanceof Error ? e.message : t.offer.errors.upload);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -120,6 +125,9 @@ export default function SupplierPage() {
   // 不再在前端复刻评分公式；最终评分与分类以提交后系统返回为准。
   const result = useMemo(() => {
     const checks: BottomLine[] = [];
+    const c = t.offer.checks;
+    const sep = t.listSeparator;
+    const qualLabel = (q: string) => qualificationLabel(q, locale);
     if (product) {
       const price = form.price === "" ? null : Number(form.price);
       const moq = form.moq === "" ? null : Number(form.moq);
@@ -129,25 +137,31 @@ export default function SupplierPage() {
       const missingQuals = product.required_qualifications.filter((q) => !qualifications.includes(q));
       const inPreferredRegion = !product.preferred_regions.length || product.preferred_regions.some((r) => form.region.includes(r));
       // 已经填了数字但未达标时，直接算出「还差多少」，比只显示红色叉号可操作得多。
+      // 单位是以变量传进模板的，享受不到 format 的「{count:one|many}」语法，
+      // 所以在这里按数量先把单位词选好（中文单位没有 `|`，unitWord 会原样返回）。
       const gap = (value: number | null, limit: number, unit: string, direction: "down" | "up") => {
-        if (value === null) return `填写后需 ≤ ${limit}${unit}`;
+        if (value === null) return format(c.gapNeedBelow, { limit, unit: unitWord(unit, limit) });
         const delta = direction === "down" ? value - limit : limit - value;
         if (delta <= 0) return undefined;
-        return direction === "down" ? `再降 ${Math.round(delta * 100) / 100}${unit} 即可达标` : `再增加 ${delta}${unit} 即可达标`;
+        const rounded = Math.round(delta * 100) / 100;
+        const word = unitWord(unit, rounded);
+        return direction === "down"
+          ? format(c.gapLower, { delta: rounded, unit: word })
+          : format(c.gapRaise, { delta: rounded, unit: word });
       };
       checks.push(
-        { label: "报价上限", spec: `≤ ¥${product.hard_max_price}`, current: price === null ? "未填" : `¥${price}`, ok: price !== null && price <= product.hard_max_price, hard: true, hint: price !== null && price > product.hard_max_price ? gap(price, product.hard_max_price, " 元", "down") : undefined },
-        { label: "起订量上限", spec: `≤ ${product.max_moq} 件`, current: moq === null ? "未填" : `${moq} 件`, ok: moq !== null && moq <= product.max_moq, hard: true, hint: moq !== null && moq > product.max_moq ? gap(moq, product.max_moq, " 件", "down") : undefined },
-        { label: "备货周期", spec: `≤ ${product.max_lead_days} 天`, current: leadDays === null ? "未填" : `${leadDays} 天`, ok: leadDays !== null && leadDays <= product.max_lead_days, hard: true, hint: leadDays !== null && leadDays > product.max_lead_days ? gap(leadDays, product.max_lead_days, " 天", "down") : undefined },
-        { label: "账期", spec: `≥ ${product.max_payment_days} 天`, current: payment === null ? "未填" : `${payment} 天`, ok: payment !== null && payment >= product.max_payment_days, hard: true, hint: payment !== null && payment < product.max_payment_days ? gap(payment, product.max_payment_days, " 天", "up") : undefined },
-        { label: "必备资质", spec: product.required_qualifications.length ? product.required_qualifications.join("、") : "无要求", current: product.required_qualifications.length ? `${product.required_qualifications.filter((q) => qualifications.includes(q)).length}/${product.required_qualifications.length}` : "—", ok: hasRequired, hard: true, hint: missingQuals.length ? `还缺：${missingQuals.join("、")}` : undefined },
-        { label: "目标采购价", spec: `≤ ¥${product.target_price}`, current: price === null ? "未填" : `¥${price}`, ok: price !== null && price <= product.target_price, hard: false, hint: "参考目标，不构成一票否决" },
-        { label: "产地偏好", spec: product.preferred_regions.length ? product.preferred_regions.join("、") : "不限地区", current: form.region ? (product.preferred_regions.length ? (inPreferredRegion ? "优先区域" : "普通区域") : "不限") : "未填", ok: inPreferredRegion, hard: false, hint: "参考目标，不构成一票否决" },
+        { label: c.priceCap, spec: format(c.specMaxPrice, { value: product.hard_max_price }), current: price === null ? c.notFilled : `¥${price}`, ok: price !== null && price <= product.hard_max_price, hard: true, hint: price !== null && price > product.hard_max_price ? gap(price, product.hard_max_price, t.offer.units.yuan, "down") : undefined },
+        { label: c.moqCap, spec: format(c.specMaxPieces, { value: product.max_moq }), current: moq === null ? c.notFilled : format(t.offer.units.pieces, { value: moq }), ok: moq !== null && moq <= product.max_moq, hard: true, hint: moq !== null && moq > product.max_moq ? gap(moq, product.max_moq, t.offer.units.piece, "down") : undefined },
+        { label: c.leadTime, spec: format(c.specMaxDays, { value: product.max_lead_days }), current: leadDays === null ? c.notFilled : format(t.offer.units.days, { value: leadDays }), ok: leadDays !== null && leadDays <= product.max_lead_days, hard: true, hint: leadDays !== null && leadDays > product.max_lead_days ? gap(leadDays, product.max_lead_days, t.offer.units.day, "down") : undefined },
+        { label: c.payment, spec: format(c.specMinDays, { value: product.max_payment_days }), current: payment === null ? c.notFilled : format(t.offer.units.days, { value: payment }), ok: payment !== null && payment >= product.max_payment_days, hard: true, hint: payment !== null && payment < product.max_payment_days ? gap(payment, product.max_payment_days, t.offer.units.day, "up") : undefined },
+        { label: c.quals, spec: product.required_qualifications.length ? product.required_qualifications.map(qualLabel).join(sep) : c.specNone, current: product.required_qualifications.length ? `${product.required_qualifications.filter((q) => qualifications.includes(q)).length}/${product.required_qualifications.length}` : "—", ok: hasRequired, hard: true, hint: missingQuals.length ? format(c.missingQuals, { list: missingQuals.map(qualLabel).join(sep) }) : undefined },
+        { label: c.targetPrice, spec: format(c.specMaxPrice, { value: product.target_price }), current: price === null ? c.notFilled : `¥${price}`, ok: price !== null && price <= product.target_price, hard: false, hint: c.softHint },
+        { label: c.region, spec: product.preferred_regions.length ? product.preferred_regions.join(sep) : c.specAnyRegion, current: form.region ? (product.preferred_regions.length ? (inPreferredRegion ? c.regionPreferred : c.regionNormal) : c.regionAny) : c.notFilled, ok: inPreferredRegion, hard: false, hint: c.softHint },
       );
     }
-    const hardPass = product ? checks.filter((c) => c.hard).every((c) => c.ok) : false;
+    const hardPass = product ? checks.filter((check) => check.hard).every((check) => check.ok) : false;
     return { hardPass, checks };
-  }, [form.price, form.moq, form.leadTime, form.payment, form.region, product, qualifications]);
+  }, [form.price, form.moq, form.leadTime, form.payment, form.region, product, qualifications, t, locale]);
 
   const hardChecks = result.checks.filter((c) => c.hard);
   const softChecks = result.checks.filter((c) => !c.hard);
@@ -175,7 +189,7 @@ export default function SupplierPage() {
       setServerResult({
         hardPass: response.hard_pass,
         score: response.score,
-        level: response.classification === "qualified" ? "优质候选" : response.classification === "negotiating" ? "可进入议价" : "不匹配",
+        level: response.classification === "qualified" ? t.offer.classification.topCandidate : response.classification === "negotiating" ? t.offer.classification.negotiating : t.offer.classification.notMatch,
         negotiationId: response.negotiation_id,
         classification: response.classification,
         hardFailReasons: response.hard_fail_reasons,
@@ -186,10 +200,10 @@ export default function SupplierPage() {
       setServerResult({
         hardPass: result.hardPass,
         score: 0,
-        level: result.hardPass ? "已通过底线" : "未通过底线",
+        level: result.hardPass ? t.offer.classification.hardPassed : t.offer.classification.hardFailed,
         negotiationId: null,
         classification: result.hardPass ? "negotiating" : "eliminated",
-        hardFailReasons: failedHard.map((c) => `${c.label} ${c.spec}（当前：${c.current}）`),
+        hardFailReasons: failedHard.map((check) => format(t.offer.result.reason, { label: check.label, spec: check.spec, current: check.current })),
       });
       setApiStatus("local");
       return null;
@@ -197,7 +211,7 @@ export default function SupplierPage() {
       setSubmitting(false);
       setSubmitted(true);
     }
-  }, [form, product, qualifications, qualFiles, result, failedHard]);
+  }, [form, product, qualifications, qualFiles, result, failedHard, t]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -211,13 +225,13 @@ export default function SupplierPage() {
     try {
       void Promise.resolve(context.registerTool({
         name: "evaluate_current_supplier_offer",
-        title: "评估当前供货方案",
-        description: "校验供应商页面当前已填写的报价、起订量、资质、地区和配合方案，并在页面中展示分类结果。",
+        title: t.offer.tool.title,
+        description: t.offer.tool.description,
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: { readOnlyHint: false, untrustedContentHint: false },
         async execute() {
           if (!isReady || Number(form.price) <= 0 || Number(form.moq) <= 0) {
-            throw new Error("请先完整填写供应商、联系方式、报价、起订量、地区和备货周期。");
+            throw new Error(t.offer.tool.incomplete);
           }
           const saved = await evaluateAndSubmit();
           return { status: saved ? "saved" : "local_demo", product: product?.name ?? "", score: saved?.score ?? null, classification: saved?.classification ?? (result.hardPass ? "negotiating" : "eliminated") };
@@ -227,7 +241,7 @@ export default function SupplierPage() {
       return;
     }
     return () => lifecycle.abort();
-  }, [evaluateAndSubmit, form.company, form.moq, form.price, isReady, product?.name, result.hardPass]);
+  }, [evaluateAndSubmit, form.company, form.moq, form.price, isReady, product?.name, result.hardPass, t]);
 
   /* ——— 提交结果页 ——— */
   if (submitted && serverResult) {
@@ -243,40 +257,40 @@ export default function SupplierPage() {
               {passed ? <CheckCircle2 className="size-7" /> : <XCircle className="size-7" />}
             </div>
             <Badge className={cn("mt-6", isTop ? "border-[var(--success)]/20 bg-[var(--success-faint)] text-[var(--success)]" : passed ? "border-[var(--warning)]/20 bg-[var(--warning-faint)] text-[var(--warning)]" : "border-[var(--danger)]/20 bg-[var(--danger-faint)] text-[var(--danger)]")}>
-              {displayResult.level} · <span className="tnum">{displayResult.score}</span> 分
+              {displayResult.level} · <span className="tnum">{displayResult.score}</span> {t.offer.result.scoreSuffix}
             </Badge>
             <h1 className="mt-4 text-[28px] font-bold tracking-tight">
-              {passed ? "资料已通过底线校验" : "当前方案需要继续调整"}
+              {passed ? t.offer.result.passTitle : t.offer.result.failTitle}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
               {isTop
-                ? "你的报价、起订量、资质和配合方案综合表现良好。系统已停止自动承诺，并提醒店长进入深度沟通。"
+                ? t.offer.result.topBody
                 : passed
-                  ? "资料已入库，AI 将围绕价格、起订量与交付条款继续洽谈。在评分达到人工阈值前，不会打扰店长。"
-                  : "当前方案触碰了采购底线，但会话不会直接结束。AI 会说明需要调整的条件，并继续与你寻找可接受的组合。"}
+                  ? t.offer.result.passedBody
+                  : t.offer.result.failedBody}
             </p>
             {!!displayResult.hardFailReasons?.length && !passed && (
               <div className="mt-5 rounded-[var(--radius-card)] border border-[var(--danger)]/20 bg-[var(--danger-faint)] p-4">
-                <div className="text-sm font-bold text-[var(--danger)]">当前方案需调整（暂不能进入人工确认）</div>
+                <div className="text-sm font-bold text-[var(--danger)]">{t.offer.result.adjustTitle}</div>
                 <div className="mt-2 space-y-1.5 text-sm leading-6 text-[var(--danger)]">
                   {displayResult.hardFailReasons.map((reason) => <div key={reason}>· {reason}</div>)}
                 </div>
               </div>
             )}
             <div className={cn("mt-5 rounded-[var(--radius-control)] px-3 py-2 text-xs", apiStatus === "saved" ? "bg-[var(--success-faint)] text-[var(--success)]" : "bg-[var(--warning-faint)] text-[var(--warning)]")}>
-              {apiStatus === "saved" ? "已提交成功，采购方会尽快查看" : "提交未送达：服务暂时不可用，以下为本地预估结果，请稍后重新提交"}
+              {apiStatus === "saved" ? t.offer.result.savedNote : t.offer.result.localNote}
             </div>
             <div className="mt-7 grid gap-3 sm:grid-cols-3">
               <div className="rounded-[var(--radius-control)] bg-[var(--paper)] p-4">
-                <div className="text-xs text-[var(--muted)]">报价</div>
-                <div className="tnum mt-1 font-bold">¥{form.price} / 件</div>
+                <div className="text-xs text-[var(--muted)]">{t.offer.result.summaryPrice}</div>
+                <div className="tnum mt-1 font-bold">{format(t.offer.result.pricePerPiece, { price: form.price })}</div>
               </div>
               <div className="rounded-[var(--radius-control)] bg-[var(--paper)] p-4">
-                <div className="text-xs text-[var(--muted)]">起订量</div>
-                <div className="tnum mt-1 font-bold">{form.moq} 件</div>
+                <div className="text-xs text-[var(--muted)]">{t.offer.result.summaryMoq}</div>
+                <div className="tnum mt-1 font-bold">{format(t.offer.result.pieceCount, { value: form.moq })}</div>
               </div>
               <div className="rounded-[var(--radius-control)] bg-[var(--paper)] p-4">
-                <div className="text-xs text-[var(--muted)]">资质完整度</div>
+                <div className="text-xs text-[var(--muted)]">{t.offer.result.summaryQuals}</div>
                 <div className="tnum mt-1 font-bold">{qualifications.length} / {QUALIFICATION_OPTIONS.length}</div>
               </div>
             </div>
@@ -284,24 +298,24 @@ export default function SupplierPage() {
               {serverResult.negotiationId && (
                 <Link href={`/supplier/chat?id=${serverResult.negotiationId}`} className="flex-1">
                   <Button variant="accent" size="lg" className="w-full">
-                    <Sparkles className="size-4" />进入 AI 洽谈 <ArrowRight className="size-4" />
+                    <Sparkles className="size-4" />{t.offer.result.enterChat} <ArrowRight className="size-4" />
                   </Button>
                 </Link>
               )}
               {isTop && (
                 <div className="flex-1 rounded-[var(--radius-control)] border border-[var(--accent)]/20 bg-[var(--accent-faint)] p-4 text-sm text-[var(--muted)]">
-                  已判定为优质候选；商家接管前，AI 会继续与你沟通。
+                  {t.offer.result.topNote}
                 </div>
               )}
               {DEBUG_TOOLS_ENABLED && serverResult.negotiationId && (
                 <Link href={`/negotiate?id=${serverResult.negotiationId}&view=supplier-test`} className="flex-1">
                   <Button variant="outline" size="lg" className="w-full">
-                    <Sparkles className="size-4" />扮演该供应商开始洽谈 <ArrowRight className="size-4" />
+                    <Sparkles className="size-4" />{t.offer.result.impersonate} <ArrowRight className="size-4" />
                   </Button>
                 </Link>
               )}
               <Button variant="outline" size="lg" className="flex-1" onClick={() => { setSubmitted(false); setServerResult(null); }}>
-                返回修改资料
+                {t.offer.result.backToEdit}
               </Button>
             </div>
           </CardContent>
@@ -317,19 +331,19 @@ export default function SupplierPage() {
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--accent-strong)]">
             <span className="h-px w-5 bg-[var(--accent)]" />
-            供应商自助入口
+            {t.offer.meta.eyebrow}
           </div>
-          <h1 className="text-[28px] font-bold tracking-tight">提交供货方案</h1>
+          <h1 className="text-[28px] font-bold tracking-tight">{t.offer.meta.title}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-            如实填写报价、起订量、资质与配合方案。系统将自动匹配当前采购需求，合适的方案可直接进入 AI 洽谈。
+            {t.offer.meta.body}
           </p>
         </div>
         <div className="rounded-[var(--radius-card)] border border-[var(--success)]/20 bg-[var(--success-faint)] p-4">
           <div className="flex items-center gap-2 text-xs font-bold text-[var(--success)]">
             <ShieldCheck className="size-4" />
-            底线规则由程序校验
+            {t.offer.meta.ruleTitle}
           </div>
-          <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">AI 只负责理解与表达，不会绕过采购方设置的硬性条件。</p>
+          <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">{t.offer.meta.ruleBody}</p>
         </div>
       </div>
 
@@ -338,7 +352,7 @@ export default function SupplierPage() {
           {/* 01 选择商品 */}
           <Card>
             <CardContent className="p-5 sm:p-6">
-              <SectionTitle index="01" title="选择供货商品" note="来自采购方在工作台启用的商品库" />
+              <SectionTitle index="01" title={t.offer.section.product.title} note={t.offer.section.product.note} />
               {productsLoading ? (
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
                   {[0, 1, 2].map((i) => <div key={i} className="h-28 animate-pulse rounded-[var(--radius-control)] bg-[var(--paper)]" />)}
@@ -369,7 +383,7 @@ export default function SupplierPage() {
                 </div>
               ) : (
                 <div className="mt-5 rounded-[var(--radius-control)] border border-dashed border-[var(--line)] p-5 text-sm text-[var(--muted)]">
-                  采购方尚未启用商品，请稍后再来。
+                  {t.offer.emptyProducts}
                 </div>
               )}
             </CardContent>
@@ -378,28 +392,28 @@ export default function SupplierPage() {
           {/* 02 基本信息 */}
           <Card>
             <CardContent className="p-5 sm:p-6">
-              <SectionTitle index="02" title="供应商基本信息" note="请手动填写，用于资质校验与后续联系" />
+              <SectionTitle index="02" title={t.offer.section.basics.title} note={t.offer.section.basics.note} />
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <Field label="企业名称" required missing={missingKey("company")} error="请填写企业名称" className="sm:col-span-2">
+                <Field label={t.offer.fields.company.label} required missing={missingKey("company")} error={t.offer.errors.company} className="sm:col-span-2">
                   <Input
                     value={form.company}
                     onChange={(e) => setForm({ ...form, company: e.target.value })}
-                    placeholder="请输入供应商或企业名称"
+                    placeholder={t.offer.fields.company.placeholder}
                     aria-invalid={missingKey("company")}
                   />
                 </Field>
-                <Field label="联系人" required missing={missingKey("contact")} error="请填写联系人">
-                  <Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder="请输入联系人" aria-invalid={missingKey("contact")} />
+                <Field label={t.offer.fields.contact.label} required missing={missingKey("contact")} error={t.offer.errors.contact}>
+                  <Input value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} placeholder={t.offer.fields.contact.placeholder} aria-invalid={missingKey("contact")} />
                 </Field>
-                <Field label="联系电话" note="已绑定登录手机号">
-                  <Input value={form.phone} readOnly placeholder="已绑定登录手机号" />
+                <Field label={t.offer.fields.phone.label} note={t.offer.fields.phone.note}>
+                  <Input value={form.phone} readOnly placeholder={t.offer.fields.phone.placeholder} />
                 </Field>
-                <Field label="所在地区" required missing={missingKey("region")} error="请填写所在地区">
-                  <Input value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder="例如：福建泉州" aria-invalid={missingKey("region")} />
+                <Field label={t.offer.fields.region.label} required missing={missingKey("region")} error={t.offer.errors.region}>
+                  <Input value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} placeholder={t.offer.fields.region.placeholder} aria-invalid={missingKey("region")} />
                 </Field>
-                <Field label="备货周期" required missing={missingKey("leadTime")} error="请填写备货周期">
-                  <WithSuffix suffix="天">
-                    <Input type="number" min="1" value={form.leadTime} onChange={(e) => setForm({ ...form, leadTime: e.target.value })} className="pr-12" placeholder="请输入天数" aria-invalid={missingKey("leadTime")} />
+                <Field label={t.offer.fields.leadTime.label} required missing={missingKey("leadTime")} error={t.offer.errors.leadTime}>
+                  <WithSuffix suffix={t.offer.fields.leadTime.suffix}>
+                    <Input type="number" min="1" value={form.leadTime} onChange={(e) => setForm({ ...form, leadTime: e.target.value })} className="pr-12" placeholder={t.offer.fields.leadTime.placeholder} aria-invalid={missingKey("leadTime")} />
                   </WithSuffix>
                 </Field>
               </div>
@@ -409,25 +423,25 @@ export default function SupplierPage() {
           {/* 03 报价与合作 */}
           <Card>
             <CardContent className="p-5 sm:p-6">
-              <SectionTitle index="03" title="报价、起订量与配合方案" note="请手动填写你可以真正履约的条件" />
+              <SectionTitle index="03" title={t.offer.section.quote.title} note={t.offer.section.quote.note} />
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                <Field label="含税单价" required missing={missingKey("price")} error="请填写含税单价">
-                  <WithSuffix prefix="¥" suffix="元/件">
-                    <Input type="number" min="0.01" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="pl-7 pr-16" placeholder="请输入报价" aria-invalid={missingKey("price")} />
+                <Field label={t.offer.fields.price.label} required missing={missingKey("price")} error={t.offer.errors.price}>
+                  <WithSuffix prefix="¥" suffix={t.offer.fields.price.suffix}>
+                    <Input type="number" min="0.01" step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="pl-7 pr-16" placeholder={t.offer.fields.price.placeholder} aria-invalid={missingKey("price")} />
                   </WithSuffix>
                 </Field>
-                <Field label="最低起订量" required missing={missingKey("moq")} error="请填写最低起订量">
-                  <WithSuffix suffix="件">
-                    <Input type="number" min="1" value={form.moq} onChange={(e) => setForm({ ...form, moq: e.target.value })} className="pr-12" placeholder="请输入数量" aria-invalid={missingKey("moq")} />
+                <Field label={t.offer.fields.moq.label} required missing={missingKey("moq")} error={t.offer.errors.moq}>
+                  <WithSuffix suffix={t.offer.fields.moq.suffix}>
+                    <Input type="number" min="1" value={form.moq} onChange={(e) => setForm({ ...form, moq: e.target.value })} className="pr-12" placeholder={t.offer.fields.moq.placeholder} aria-invalid={missingKey("moq")} />
                   </WithSuffix>
                 </Field>
-                <Field label="账期" required missing={missingKey("payment")} error="请填写账期">
-                  <WithSuffix suffix="天">
-                    <Input type="number" min="0" value={form.payment} onChange={(e) => setForm({ ...form, payment: e.target.value })} className="pr-12" placeholder="请输入天数" aria-invalid={missingKey("payment")} />
+                <Field label={t.offer.fields.payment.label} required missing={missingKey("payment")} error={t.offer.errors.payment}>
+                  <WithSuffix suffix={t.offer.fields.payment.suffix}>
+                    <Input type="number" min="0" value={form.payment} onChange={(e) => setForm({ ...form, payment: e.target.value })} className="pr-12" placeholder={t.offer.fields.payment.placeholder} aria-invalid={missingKey("payment")} />
                   </WithSuffix>
                 </Field>
-                <Field label="合作与售后方案" className="sm:col-span-2">
-                  <Textarea value={form.cooperation} onChange={(e) => setForm({ ...form, cooperation: e.target.value })} placeholder="可选填：是否支持小批测款、退换政策、二单排产等" />
+                <Field label={t.offer.fields.cooperation.label} className="sm:col-span-2">
+                  <Textarea value={form.cooperation} onChange={(e) => setForm({ ...form, cooperation: e.target.value })} placeholder={t.offer.fields.cooperation.placeholder} />
                 </Field>
               </div>
             </CardContent>
@@ -439,7 +453,7 @@ export default function SupplierPage() {
           <Card>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-bold">填写完成度</div>
+                <div className="text-sm font-bold">{t.offer.progress.title}</div>
                 <span className="tnum text-xs font-semibold text-[var(--muted)]">{doneCount} / {requiredFields.length}</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--paper-deep)]">
@@ -450,12 +464,14 @@ export default function SupplierPage() {
               </div>
               {missingFields.length ? (
                 <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
-                  还差 {missingFields.length} 项：{missingFields.map((item) => item.label).join("、")}
-                  {qualsNeedFiles ? "、资质文件" : ""}
+                  {format(t.offer.progress.remaining, {
+                    count: missingFields.length,
+                    list: missingFields.map((item) => item.label).join(t.listSeparator) + (qualsNeedFiles ? t.offer.progress.filesSuffix : ""),
+                  })}
                 </p>
               ) : (
                 <p className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-[var(--success)]">
-                  <Check className="size-3.5" />必填项已完整，可以提交
+                  <Check className="size-3.5" />{t.offer.progress.ready}
                 </p>
               )}
             </CardContent>
@@ -465,7 +481,7 @@ export default function SupplierPage() {
             <CardContent className="p-5">
               <div className="flex items-center gap-2 text-sm font-bold">
                 <FileBadge2 className="size-4 text-[var(--accent)]" />
-                资质与能力
+                {t.offer.quals.title}
               </div>
               <div className="mt-4 space-y-2">
                 {QUALIFICATION_OPTIONS.map((q) => (
@@ -481,7 +497,7 @@ export default function SupplierPage() {
                         : "border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--ink)]",
                     )}
                   >
-                    <span>{q}</span>
+                    <span>{qualificationLabel(q, locale)}</span>
                     <span className={cn("grid size-5 place-items-center rounded border", qualifications.includes(q) ? "border-[var(--success)] bg-[var(--success)] text-white" : "border-[var(--line)]")}>
                       {qualifications.includes(q) && <Check className="size-3" />}
                     </span>
@@ -500,11 +516,11 @@ export default function SupplierPage() {
                     className="flex w-full items-center justify-center gap-2 rounded-[var(--radius-control)] border border-dashed border-[var(--accent)]/40 bg-[var(--accent-faint)]/40 p-3 text-xs font-semibold text-[var(--accent-strong)] transition hover:border-[var(--accent)] disabled:opacity-60"
                   >
                     <UploadCloud className="size-4" />
-                    {uploading ? "正在上传…" : "上传资质文件（图片或 PDF）"}
+                    {uploading ? t.offer.quals.uploading : t.offer.quals.upload}
                   </button>
-                  <p className="mt-1.5 text-[11px] leading-4 text-[var(--muted)]">已勾选资质，至少上传一份文件供采购方核验。</p>
+                  <p className="mt-1.5 text-[11px] leading-4 text-[var(--muted)]">{t.offer.quals.uploadHint}</p>
                   {uploadError && <div className="mt-2 text-[11px] font-semibold text-[var(--warning)]">{uploadError}</div>}
-                  {qualsNeedFiles && <div className="mt-2 text-[11px] font-semibold text-[var(--warning)]">还需要上传至少一份资质文件</div>}
+                  {qualsNeedFiles && <div className="mt-2 text-[11px] font-semibold text-[var(--warning)]">{t.offer.quals.needFile}</div>}
                 </div>
               )}
 
@@ -516,16 +532,16 @@ export default function SupplierPage() {
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-xs font-medium" title={file.original_name}>{file.original_name}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                            {file.ocr_status === "passed" && <span className="rounded bg-[var(--success-faint)] px-1.5 py-0.5 font-bold text-[var(--success)]">识别一致</span>}
-                            {file.ocr_status === "mismatch" && <span className="rounded bg-[var(--danger-faint)] px-1.5 py-0.5 font-bold text-[var(--danger)]">识别不一致</span>}
-                            {(file.ocr_status === "not_applicable" || file.ocr_status === "unavailable" || file.ocr_status === "not_checked") && <span className="rounded bg-[var(--warning-faint)] px-1.5 py-0.5 font-bold text-[var(--warning)]">转人工核验</span>}
+                            {file.ocr_status === "passed" && <span className="rounded bg-[var(--success-faint)] px-1.5 py-0.5 font-bold text-[var(--success)]">{t.offer.quals.ocrPassed}</span>}
+                            {file.ocr_status === "mismatch" && <span className="rounded bg-[var(--danger-faint)] px-1.5 py-0.5 font-bold text-[var(--danger)]">{t.offer.quals.ocrMismatch}</span>}
+                            {(file.ocr_status === "not_applicable" || file.ocr_status === "unavailable" || file.ocr_status === "not_checked") && <span className="rounded bg-[var(--warning-faint)] px-1.5 py-0.5 font-bold text-[var(--warning)]">{t.offer.quals.ocrManual}</span>}
                             <span className="tnum text-[var(--muted)]">{Math.max(1, Math.round(file.size_bytes / 1024))} KB</span>
                           </div>
                           {file.ocr_detail && <p className="mt-1 text-[11px] leading-4 text-[var(--muted)]">{file.ocr_detail}</p>}
                         </div>
                         <button
                           type="button"
-                          aria-label={`移除 ${file.original_name}`}
+                          aria-label={format(t.offer.quals.remove, { name: file.original_name })}
                           onClick={() => setQualFiles((current) => current.filter((f) => f.id !== file.id))}
                           className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-chip)] border border-[var(--line)] transition hover:border-[var(--ink)]"
                         >
@@ -544,16 +560,16 @@ export default function SupplierPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-bold">
                   <ShieldCheck className={cn("size-4", result.hardPass ? "text-[var(--success)]" : "text-[var(--muted)]")} />
-                  底线对照
+                  {t.offer.bottomLine.title}
                 </div>
                 {product && (
                   <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", result.hardPass ? "bg-[var(--success-faint)] text-[var(--success)]" : failedHard.length ? "bg-[var(--warning-faint)] text-[var(--warning)]" : "bg-[var(--paper)] text-[var(--muted)]")}>
-                    {!product ? "—" : result.hardPass ? "硬性底线全部满足" : `还差 ${failedHard.length} 项`}
+                    {!product ? "—" : result.hardPass ? t.offer.bottomLine.allMet : format(t.offer.bottomLine.shortBy, { count: failedHard.length })}
                   </span>
                 )}
               </div>
               <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-                只校验采购方设定的硬性底线，不做评分预估；最终分类以提交后系统判定为准。
+                {t.offer.bottomLine.note}
               </p>
 
               {product ? (
@@ -583,7 +599,7 @@ export default function SupplierPage() {
                     className="mt-4 flex items-center gap-1 text-[11px] font-semibold text-[var(--accent-strong)]"
                   >
                     <ChevronDown className={cn("size-3.5 transition-transform", showAllChecks && "rotate-180")} />
-                    {showAllChecks ? "收起参考目标" : "查看参考目标（不构成一票否决）"}
+                    {showAllChecks ? t.offer.bottomLine.collapse : t.offer.bottomLine.expand}
                   </button>
                   {showAllChecks && (
                     <div className="mt-3 space-y-2.5 border-t border-[var(--line)] pt-3">
@@ -603,17 +619,17 @@ export default function SupplierPage() {
                   )}
                 </>
               ) : (
-                <div className="mt-4 text-xs text-[var(--muted)]">请先选择供货商品。</div>
+                <div className="mt-4 text-xs text-[var(--muted)]">{t.offer.bottomLine.pickProduct}</div>
               )}
             </CardContent>
           </Card>
 
           <Button type="submit" variant="accent" size="lg" className="w-full" disabled={submitting || !isReady}>
             <Building2 className="size-4" />
-            {submitting ? "正在校验…" : isReady ? "校验并提交方案" : `还需填写 ${missingFields.length + (qualsNeedFiles ? 1 : 0)} 项`}
+            {submitting ? t.offer.submit.busy : isReady ? t.offer.submit.ready : format(t.offer.submit.missing, { count: missingFields.length + (qualsNeedFiles ? 1 : 0) })}
           </Button>
           <p className="text-center text-[11px] leading-4 text-[var(--muted)]">
-            提交即表示你确认信息真实。系统会将报价和谈判记录用于本次供应商评估。
+            {t.offer.submit.note}
           </p>
         </div>
       </form>

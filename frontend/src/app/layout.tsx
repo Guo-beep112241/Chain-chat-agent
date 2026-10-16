@@ -1,38 +1,46 @@
 import type { Metadata, Viewport } from "next";
 import { ToastProvider } from "@/components/ui/toast";
+import { LanguageProvider } from "@/lib/i18n/client";
+import { htmlLang } from "@/lib/i18n/config";
+import { getDictionary } from "@/lib/i18n/dict";
+import { getI18n } from "@/lib/i18n/server";
 import { BRAND_COLORS } from "@/lib/theme";
 import "./globals.css";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
-export const metadata: Metadata = {
-  metadataBase: new URL(SITE_URL),
-  title: {
-    default: "链谈 Agent | 供应商智能接待、分层谈判与筛选",
-    template: "%s | 链谈 Agent",
-  },
-  description:
-    "为中小采购商家自动接待、筛选并分层供应商的谈判系统。大模型负责理解和表达，底线、评分和决策由程序完成。",
-  applicationName: "链谈 Agent",
-  keywords: ["供应商管理", "采购谈判", "AI 谈判", "供应商筛选", "采购工作台", "供应链"],
-  authors: [{ name: "链谈 Agent" }],
-  openGraph: {
-    title: "链谈 Agent · 把时间留给真正值得谈的供应商",
-    description: "自动接待、底线校验、分层转人工：把精力只花在值得谈的供应商上。",
-    url: "/",
-    siteName: "链谈 Agent",
-    images: [{ url: "/og.jpg", width: 1200, height: 630, alt: "链谈 Agent 供应商智能谈判工作台" }],
-    locale: "zh_CN",
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "链谈 Agent · 把时间留给真正值得谈的供应商",
-    description: "自动接待、底线校验、分层转人工：把精力只花在值得谈的供应商上。",
-    images: ["/og.jpg"],
-  },
-  robots: { index: true, follow: true },
-};
+/**
+ * 元信息跟着语言走：搜索引擎与社交卡片抓到的标题/描述必须是访客看得懂的那一份。
+ * 语言来自 cookie，所以这里是 generateMetadata 而不是静态 metadata。
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const { locale } = await getI18n();
+  const t = getDictionary(locale).common.meta;
+  return {
+    metadataBase: new URL(SITE_URL),
+    title: { default: t.defaultTitle, template: t.titleTemplate },
+    description: t.description,
+    applicationName: t.applicationName,
+    keywords: [...t.keywords],
+    authors: [{ name: t.applicationName }],
+    openGraph: {
+      title: t.ogTitle,
+      description: t.ogDescription,
+      url: "/",
+      siteName: t.applicationName,
+      images: [{ url: "/og.jpg", width: 1200, height: 630, alt: t.ogImageAlt }],
+      locale: t.ogLocale,
+      type: "website",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: t.ogTitle,
+      description: t.ogDescription,
+      images: ["/og.jpg"],
+    },
+    robots: { index: true, follow: true },
+  };
+}
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -40,13 +48,17 @@ export const viewport: Viewport = {
   themeColor: BRAND_COLORS.accent,
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // 语言在服务端就定下来：<html lang> 与首屏文案必须一次渲染就是对的，
+  // 否则会出现「先中文再跳成英文」的闪烁。
+  const { locale } = await getI18n();
+
   return (
     // suppressHydrationWarning 是必须的：上面那段内联脚本会在水合之前给 <html>
     // 加上 .motion，React 比对服务端标记与客户端属性时必然发现差异，
     // 于是每个页面都往控制台打一条 hydration 报错，Next 开发浮层也常驻一个 Issue。
     // 这里只压制 <html> 自身属性的差异，不会掩盖子树的真实水合问题。
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang={htmlLang(locale)} suppressHydrationWarning>
       <head>
         {/* 动效开关。为什么必须是首屏同步内联脚本：
             滚动入场元素的隐藏态写在 `.motion .reveal{opacity:0}` 里，
@@ -62,7 +74,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
       </head>
       <body>
-        <ToastProvider>{children}</ToastProvider>
+        {/* Provider 拿服务端读到的语言做初值：客户端组件因此不会先渲染中文再切英文。 */}
+        <LanguageProvider initialLocale={locale}>
+          <ToastProvider>{children}</ToastProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

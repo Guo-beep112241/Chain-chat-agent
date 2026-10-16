@@ -278,6 +278,70 @@ svg.lucide { stroke-width: 1.5; }
   display: none !important;
 }
 
+/* ============================================================================
+   语言切换的转接页
+   ——
+   切换语言要重新渲染服务端内容，这段时间页面不能「什么都不发生」。
+   遮罩用页面底色（--paper）+ 一层网格，和认证页的品牌区同一套语言：
+   它读起来是「页面正在重新装订」，而不是一个弹窗广告。
+   ============================================================================ */
+@keyframes lang-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* 不确定进度条：一根 40% 宽的高亮条在轨道里匀速扫过，表示「在跑」而非「跑到哪了」。
+   刻意不显示百分比——服务端渲染没有可用的进度，编一个数字比不显示更糟。 */
+@keyframes lang-sweep {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(250%); }
+}
+
+.lang-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  /* color-mix 让遮罩直接取页面底色，改主题时不会漏掉这里；
+     下一行是给不支持 color-mix 的浏览器的实色兜底。 */
+  background: var(--paper);
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(6px);
+  animation: lang-fade var(--dur-base) var(--ease-glide) both;
+}
+.lang-overlay-card {
+  position: relative;
+  width: 100%;
+  max-width: 24rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-pop);
+}
+.lang-overlay-bar {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  /* 轨道本身用淡品牌色而不是灰色：扫描条在循环里有一段完全移出轨道，
+     轨道若是空的，那一瞬间整条进度看起来像没在跑。 */
+  background: var(--accent-faint);
+}
+.lang-overlay-bar span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: lang-sweep 1.15s var(--ease-glide) infinite;
+}
+/* 系统要求「减少动态效果」时：进度条不扫动，但也不能消失——静止的一小段高亮
+   仍然在表达「这里是进度」，比一条空轨道清楚。 */
+@media (prefers-reduced-motion: reduce) {
+  .lang-overlay-bar span { animation: none !important; }
+}
+
 /* 键盘焦点：全站统一。基础组件自带 ring，但页面里还有大量手写 <button>／链接，
    它们此前完全没有焦点样式，键盘用户看不到自己在哪。用 :focus-visible
    只在键盘导航时出现，不影响鼠标点击的观感。

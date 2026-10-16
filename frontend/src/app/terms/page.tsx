@@ -1,34 +1,46 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { getI18n } from "@/lib/i18n/server";
+import { format } from "@/lib/i18n/types";
 
-export default function TermsPage() {
+export async function generateMetadata(): Promise<Metadata> {
+  const { d } = await getI18n();
+  return {
+    title: d.legal.meta.title,
+    description: d.legal.meta.description,
+  };
+}
+
+export default async function TermsPage() {
+  const { d } = await getI18n();
+  const t = d.legal;
+  // 品牌名两种语言写法不同（链谈 Agent / LianTan Agent），正文里的品牌沿用同一份词典。
+  const brand = `${d.common.brand.name} ${d.common.brand.suffix}`;
+
   return (
     <div className="animate-rise mx-auto flex min-h-[calc(100vh-4rem)] max-w-2xl flex-col justify-center py-8">
-      <Link href="/register" className="mb-6 inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"><ArrowLeft className="size-3.5" />返回注册</Link>
+      {/* 平台须知是首页页脚能直达的公开页面，语言切换在这里同样要够得着，
+          否则英文用户看完条款只能退回首页才能切回中文。 */}
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <Link href="/register" className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--muted)] hover:text-[var(--ink)]"><ArrowLeft className="size-3.5" />{t.backToRegister}</Link>
+        <LanguageSwitcher />
+      </div>
 
       <Card className="overflow-hidden">
         <div className="h-2 bg-[var(--accent)]" />
         <CardContent className="p-7 sm:p-8">
-          <h1 className="text-xl font-bold tracking-tight">平台须知</h1>
+          <h1 className="text-xl font-bold tracking-tight">{t.title}</h1>
           <div className="mt-5 space-y-4 text-sm leading-7 text-[var(--muted)]">
-            <p>
-              欢迎使用「链谈 Agent」采购谈判工作台。注册并使用本平台即表示你已阅读、理解并同意本须知。
-            </p>
-            <p>
-              本平台为演示用途：手机验证码为演示码（不发送真实短信），邮箱仅做格式与唯一性校验（不发送验证邮件）。
-              平台基于你填写的采购规则自动评分、筛选供应商并生成谈判话术，最终采购决策与合同签订由商家自行负责。
-            </p>
-            <p>
-              你提交的商家名称、联系方式、商品规则与谈判记录仅用于本次演示，请勿上传真实敏感信息。平台不会向第三方出售或共享你的数据。
-            </p>
-            <p>
-              本须知为占位文案，正式上线前请替换为完整、合规的《用户协议》与《隐私政策》。
-            </p>
+            {t.paragraphs.map((paragraph) => (
+              <p key={paragraph}>{format(paragraph, { brand })}</p>
+            ))}
           </div>
           <div className="mt-6">
-            <Link href="/register"><Button variant="accent" className="w-full">已阅读，返回注册</Button></Link>
+            <Link href="/register"><Button variant="accent" className="w-full">{t.confirm}</Button></Link>
           </div>
         </CardContent>
       </Card>

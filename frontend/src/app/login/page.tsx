@@ -9,10 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { merchantCodeLogin, merchantLogin, requestMerchantCode, consumeSessionExpired, setMerchantAuth } from "@/lib/api";
+import { useI18n } from "@/lib/i18n/client";
+import { format } from "@/lib/i18n/types";
 import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { d } = useI18n();
+  const t = d.auth.login;
+  const shared = d.auth.shared;
   const [mode, setMode] = useState<"password" | "code">("password");
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
@@ -49,7 +54,7 @@ export default function LoginPage() {
 
   async function sendCode() {
     if (!/^\d{11}$/.test(phone.trim())) {
-      setError("请输入 11 位手机号");
+      setError(shared.invalidPhone);
       return;
     }
     setRequesting(true);
@@ -59,10 +64,10 @@ export default function LoginPage() {
       const res = await requestMerchantCode(phone.trim());
       setDemoCode(res.code ?? "");
       setCode(res.code ?? ""); // 演示模式：验证码自动填入
-      setNotice(res.code ? `演示验证码已生成：${res.code}（5 分钟内有效）` : "验证码已发送，请查看短信");
+      setNotice(res.code ? format(shared.demoCodeNotice, { code: res.code }) : shared.codeSent);
       setCountdown(60);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "获取验证码失败");
+      setError(e instanceof Error ? e.message : shared.sendCodeFailed);
     } finally {
       setRequesting(false);
     }
@@ -71,11 +76,11 @@ export default function LoginPage() {
   async function loginBuyer() {
     setError("");
     if (mode === "password") {
-      if (!account.trim()) { setError("请输入登录账号"); return; }
-      if (!password) { setError("请输入登录密码"); return; }
+      if (!account.trim()) { setError(t.accountRequired); return; }
+      if (!password) { setError(t.passwordRequired); return; }
     } else {
-      if (!/^\d{11}$/.test(phone.trim())) { setError("请输入 11 位手机号"); return; }
-      if (!code.trim()) { setError("请输入验证码"); return; }
+      if (!/^\d{11}$/.test(phone.trim())) { setError(shared.invalidPhone); return; }
+      if (!code.trim()) { setError(t.codeRequired); return; }
     }
     setSubmitting(true);
     try {
@@ -85,7 +90,7 @@ export default function LoginPage() {
       setMerchantAuth(res.access_token);
       router.push("/dashboard");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "登录失败");
+      setError(e instanceof Error ? e.message : shared.loginFailed);
     } finally {
       setSubmitting(false);
     }
@@ -95,13 +100,13 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
-      asideTitle="把时间留给真正值得谈的供应商"
-      asideBody="链谈 Agent 自动接待上门的供应商，先按你的采购底线硬性筛选，再按七维权重打分分层。达到标准的才提醒你接手。"
+      asideTitle={t.asideTitle}
+      asideBody={t.asideBody}
     >
       <div className="p-7 sm:p-8">
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight">进入采购工作台</h1>
+        <h1 className="text-[28px] font-bold leading-tight tracking-tight">{t.title}</h1>
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-          采购方用账号密码或手机验证码登录；供应商走手机号验证码入口。
+          {t.subtitle}
         </p>
 
         {expiredNotice && (
@@ -109,7 +114,7 @@ export default function LoginPage() {
             role="status"
             className="mt-4 rounded-[var(--radius-control)] border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5 text-xs leading-5 text-[var(--muted)]"
           >
-            登录状态已过期（令牌默认 30 天有效），请重新登录后继续。
+            {t.expiredNotice}
           </p>
         )}
 
@@ -117,13 +122,13 @@ export default function LoginPage() {
             两个长得一样的分段控件摞在一起，用户要先分辨「哪一排是身份、哪一排是方式」。
             这里只留「你在哪、怎么去对面」。 */}
         <div className="mt-6 flex items-center gap-2 text-xs">
-          <span className="text-[var(--muted)]">当前身份</span>
-          <span className="rounded-full bg-[var(--paper)] px-2.5 py-1 font-semibold text-[var(--ink)]">采购方</span>
+          <span className="text-[var(--muted)]">{shared.identityLabel}</span>
+          <span className="rounded-full bg-[var(--paper)] px-2.5 py-1 font-semibold text-[var(--ink)]">{t.identityBuyer}</span>
           <Link
             href="/supplier/login"
             className="ml-auto font-semibold text-[var(--accent-strong)] underline underline-offset-2 transition-colors hover:text-[var(--accent)]"
           >
-            我是供应商 →
+            {t.switchToSupplier}
           </Link>
         </div>
 
@@ -141,7 +146,7 @@ export default function LoginPage() {
               mode === "password" ? "bg-[var(--surface)] text-[var(--ink)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--ink)]",
             )}
           >
-            账号密码登录
+            {t.tabPassword}
           </button>
           <button
             type="button"
@@ -152,21 +157,21 @@ export default function LoginPage() {
               mode === "code" ? "bg-[var(--surface)] text-[var(--ink)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--ink)]",
             )}
           >
-            手机验证码登录
+            {t.tabCode}
           </button>
         </div>
 
         {mode === "password" ? (
           <div className="mt-4 space-y-3">
             <label className="block">
-              <span className="text-xs font-semibold">登录账号</span>
+              <span className="text-xs font-semibold">{t.accountLabel}</span>
               <div className="relative mt-2">
                 <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
                 <Input
                   className="pl-9"
                   value={account}
                   onChange={(e) => setAccount(e.target.value)}
-                  placeholder="登录账号"
+                  placeholder={t.accountPlaceholder}
                   autoComplete="username"
                   // 手机键盘默认首字母大写，账号 admin 会被自动写成 Admin。
                   // 后端已按忽略大小写匹配，这里再从输入端关掉自动大写与自动纠错。
@@ -179,13 +184,13 @@ export default function LoginPage() {
               </div>
             </label>
             <label className="block">
-              <span className="text-xs font-semibold">登录密码</span>
+              <span className="text-xs font-semibold">{t.passwordLabel}</span>
               <div className="mt-2">
                 <PasswordInput
                   leadingIcon={<KeyRound className="size-4" />}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="登录密码"
+                  placeholder={t.passwordPlaceholder}
                   autoComplete="current-password"
                   onKeyDown={(e) => { if (e.key === "Enter") void loginBuyer(); }}
                   aria-invalid={Boolean(error) && !password}
@@ -197,14 +202,14 @@ export default function LoginPage() {
         ) : (
           <div id="panel-code" className="mt-4 space-y-3">
             <label className="block">
-              <span className="text-xs font-semibold">手机号</span>
+              <span className="text-xs font-semibold">{shared.phoneLabel}</span>
               <div className="relative mt-2">
                 <Smartphone className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
                 <Input
                   className="pl-9"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="请输入 11 位手机号"
+                  placeholder={shared.phonePlaceholder}
                   inputMode="numeric"
                   maxLength={11}
                   autoComplete="tel"
@@ -213,7 +218,7 @@ export default function LoginPage() {
               </div>
             </label>
             <label className="block">
-              <span className="text-xs font-semibold">验证码</span>
+              <span className="text-xs font-semibold">{shared.codeLabel}</span>
               <div className="mt-2 flex gap-2">
                 <div className="relative flex-1">
                   <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -221,7 +226,7 @@ export default function LoginPage() {
                     className="pl-9"
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    placeholder="6 位验证码"
+                    placeholder={shared.codePlaceholder}
                     inputMode="numeric"
                     maxLength={6}
                     autoComplete="one-time-code"
@@ -229,13 +234,13 @@ export default function LoginPage() {
                   />
                 </div>
                 <Button type="button" variant="outline" onClick={() => void sendCode()} disabled={requesting || countdown > 0}>
-                  {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? `${countdown}s` : "获取验证码"}
+                  {requesting ? <Loader2 className="size-4 animate-spin" /> : countdown > 0 ? format(shared.countdown, { seconds: countdown }) : shared.sendCode}
                 </Button>
               </div>
             </label>
             {demoCode && (
               <div className="rounded-[var(--radius-control)] border border-dashed border-[var(--accent)]/40 bg-[var(--accent-faint)] p-3">
-                <div className="text-xs font-semibold text-[var(--accent-strong)]">演示验证码</div>
+                <div className="text-xs font-semibold text-[var(--accent-strong)]">{shared.demoCodeTitle}</div>
                 <div className="tnum mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
                 <p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p>
               </div>
@@ -262,13 +267,13 @@ export default function LoginPage() {
           onClick={() => void loginBuyer()}
         >
           {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-          {submitting ? "正在进入工作台…" : "登录并进入"}
+          {submitting ? t.submitting : t.submit}
         </Button>
 
         <p className="mt-5 text-center text-xs text-[var(--muted)]">
-          没有账号？{" "}
+          {t.noAccount}{" "}
           <Link href="/register" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
-            立即注册商家账号
+            {t.registerLink}
           </Link>
         </p>
       </div>

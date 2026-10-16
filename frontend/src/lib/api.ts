@@ -1,3 +1,7 @@
+import { getDictionary } from "@/lib/i18n/dict";
+import { getActiveLocale } from "@/lib/i18n/locale-store";
+import { format } from "@/lib/i18n/types";
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // 说明：这里刻意不再引用任何 NEXT_PUBLIC_ADMIN_TOKEN。
 // 只要代码里出现该变量，Next 就会把它内联进客户端产物——即使运行时用不到，
@@ -178,18 +182,36 @@ export type MLEvaluationResult = {
 // 只会怀疑数据库断了或鉴权坏了，而我们连「后端没起来」「后端是旧版本」
 // 「参数格式不对」都分不出来。这里把三类失败拆开，各给一句能照着做的中文。
 
-const FIELD_LABELS: Record<string, string> = {
-  account: "登录账号",
-  password: "密码",
-  phone: "手机号",
-  code: "验证码",
-  email: "邮箱",
-  store_name: "商家名称",
-  agree_terms: "平台须知",
-  current_password: "原密码",
-  new_password: "新密码",
-  content: "消息内容",
-};
+/**
+ * 取当前语言的词典。必须在真正要出提示语的函数体内调用：
+ * 写在模块顶层会在 import 的那一刻把语言定死，切语言后提示语不会跟着变。
+ */
+function dict() {
+  return getDictionary(getActiveLocale());
+}
+
+/** 品牌名两种语言写法不同（链谈 Agent / LianTan Agent），因此同样从词典取。 */
+function brandName(): string {
+  return `${dict().common.brand.name} ${dict().common.brand.suffix}`;
+}
+
+/** 后端字段名 → 用户看得懂的名字。键必须与后端字段名一致，只翻译展示出去的值。 */
+function fieldLabel(field: string): string {
+  const labels = dict().system.api.fieldLabels;
+  const map: Record<string, string> = {
+    account: labels.account,
+    password: labels.password,
+    phone: labels.phone,
+    code: labels.code,
+    email: labels.email,
+    store_name: labels.storeName,
+    agree_terms: labels.agreeTerms,
+    current_password: labels.currentPassword,
+    new_password: labels.newPassword,
+    content: labels.content,
+  };
+  return map[field] ?? field;
+}
 
 type Probe =
   | { state: "ok"; version: string | null }
@@ -224,28 +246,30 @@ async function probeBackend(): Promise<Probe> {
 }
 
 function offlineMessage(probe: Probe): string {
+  const { errors } = dict().system.api;
   if (probe.state === "not-backend") {
-    return `后端地址 ${API_BASE} 上的服务不是链谈 Agent 后端（该地址没有 /api/health 接口）。请检查 NEXT_PUBLIC_API_URL 是否误填成了前端网址。`;
+    return format(errors.notBackend, { base: API_BASE, brand: brandName() });
   }
-  return `无法连接后端服务 ${API_BASE}。请确认后端已启动；若前端是部署在别处的，请检查 NEXT_PUBLIC_API_URL 是否指向正确的后端地址。`;
+  return format(errors.unreachable, { base: API_BASE });
 }
 
 /** 把一条 FastAPI 校验错误翻译成人话。FastAPI 的 msg 是英文，直接展示等于没说。 */
 function describeValidationItem(item: unknown): string | null {
   if (!item || typeof item !== "object") return null;
+  const { fieldLabels, validation } = dict().system.api;
   const record = item as { loc?: unknown[]; type?: string };
   const path = Array.isArray(record.loc) ? record.loc.filter((part) => part !== "body") : [];
   const field = path.length ? String(path[path.length - 1]) : "";
-  const label = FIELD_LABELS[field] ?? field;
+  const label = fieldLabel(field);
   const type = record.type ?? "";
-  if (field === "agree_terms") return "请先阅读并勾选同意平台须知";
-  if (type.includes("missing")) return `${label || "必填项"}不能为空`;
-  if (field === "phone") return "请输入 11 位手机号";
-  if (field === "code") return "请输入 6 位验证码";
-  if (field === "email") return "请输入正确的邮箱地址";
-  if (field === "account" && (type.includes("pattern") || type.includes("short"))) return "账号需 3-80 位，仅限字母、数字、下划线";
-  if (field === "password" && (type.includes("short") || type.includes("length"))) return "密码长度需大于 8 个字符";
-  return label ? `${label}填写有误` : null;
+  if (field === "agree_terms") return validation.agreeTerms;
+  if (type.includes("missing")) return format(validation.missing, { field: field ? label : fieldLabels.required });
+  if (field === "phone") return validation.phone;
+  if (field === "code") return validation.code;
+  if (field === "email") return validation.email;
+  if (field === "account" && (type.includes("pattern") || type.includes("short"))) return validation.account;
+  if (field === "password" && (type.includes("short") || type.includes("length"))) return validation.password;
+  return label ? format(validation.invalid, { field: label }) : null;
 }
 
 /** detail 可能是字符串、FastAPI 的校验错误数组，或对象；取不出去就返回 null 走兜底。 */
@@ -254,11 +278,12 @@ function messageFromDetail(detail: unknown): string | null {
     const text = detail.trim();
     // "Not Found" 是 FastAPI 在路由不存在时的默认值，等于没写，交给 404 分支去探因。
     if (!text || text === "Not Found") return null;
+    // 后端自己的业务报错文案：属于后端内容，原样展示，不由前端翻译。
     return text;
   }
   if (Array.isArray(detail)) {
     const messages = detail.map(describeValidationItem).filter((item): item is string => Boolean(item));
-    return messages.length ? messages[0] : "提交的内容格式不正确，请检查后重试";
+    return messages.length ? messages[0] : dict().system.api.validation.invalidSubmission;
   }
   if (detail && typeof detail === "object") {
     const nested = (detail as { message?: unknown; detail?: unknown }).message ?? (detail as { detail?: unknown }).detail;
@@ -269,19 +294,20 @@ function messageFromDetail(detail: unknown): string | null {
 
 /** 非 2xx 时决定给用户看什么。 */
 async function explainFailure(status: number, body: unknown, path: string): Promise<string> {
+  const { errors } = dict().system.api;
   const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
   const fromDetail = messageFromDetail(detail);
   if (fromDetail) return fromDetail;
   if (status === 404) {
     const probe = await probeBackend();
     if (probe.state === "ok") {
-      return `后端服务可达（版本 ${probe.version ?? "未知"}），但没有 ${path} 这个接口——后端很可能还停在旧版本，请更新后端代码并重启。`;
+      return format(errors.staleBackend, { version: probe.version ?? errors.unknownVersion, path });
     }
     return offlineMessage(probe);
   }
-  if (status === 503) return "后端数据库暂时不可用，请稍后重试；若持续出现，请检查后端 DATABASE_URL 配置。";
-  if (status >= 500) return `后端处理失败（HTTP ${status}）。可把顶栏请求编号提供给开发排查。`;
-  return `请求失败（HTTP ${status}）`;
+  if (status === 503) return errors.dbUnavailable;
+  if (status >= 500) return format(errors.serverError, { status });
+  return format(errors.requestFailed, { status });
 }
 
 async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "none"): Promise<T> {
@@ -304,10 +330,9 @@ async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "no
     // fetch 直接抛错 = 请求根本没送到后端：服务没起来、被跨域拦下、或混合内容被浏览器拦。
     const probe = await probeBackend();
     if (probe.state === "ok") {
-      const origin = typeof window === "undefined" ? "当前网页" : window.location.origin;
-      throw new Error(
-        `请求没能送达后端。${API_BASE} 本身可访问，通常是后端 FRONTEND_ORIGIN 没有包含 ${origin}，请求被跨域拦截。`,
-      );
+      const errors = dict().system.api.errors;
+      const origin = typeof window === "undefined" ? errors.currentPage : window.location.origin;
+      throw new Error(format(errors.blocked, { base: API_BASE, origin }));
     }
     throw new Error(offlineMessage(probe));
   }
@@ -317,7 +342,7 @@ async function request<T>(path: string, init?: RequestInit, auth: AuthMode = "no
   }
   const body = await response.json().catch(() => null);
   if (body === null) {
-    throw new Error(`后端返回了非 JSON 响应，接口 ${path} 可能不是链谈 Agent 后端。`);
+    throw new Error(format(dict().system.api.errors.nonJson, { path, brand: brandName() }));
   }
   return body as T;
 }
@@ -377,7 +402,7 @@ export function uploadQualificationFile(file: File, companyName: string) {
 export async function openQualificationFile(fileId: string) {
   const token = getMerchantToken();
   const response = await fetch(`${API_BASE}/api/uploads/${fileId}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error("文件读取失败");
+  if (!response.ok) throw new Error(dict().system.api.errors.fileRead);
   const url = URL.createObjectURL(await response.blob());
   window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 60_000);

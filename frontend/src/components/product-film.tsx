@@ -3,6 +3,9 @@
 import * as React from "react";
 import Image from "next/image";
 import { Pause, Play } from "lucide-react";
+import { useI18n } from "@/lib/i18n/client";
+import type { Locale } from "@/lib/i18n/config";
+import { format } from "@/lib/i18n/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -21,11 +24,37 @@ import { cn } from "@/lib/utils";
  *
  * 自动播放的循环内容超过 5 秒就必须可暂停（WCAG 2.2.2），所以右下角常驻一个
  * 暂停/播放按钮，而不是只在 hover 时才出现。
+ *
+ * 素材是**按语言两份**的：影片画面里的文字（条款、消息、评分维度）都长在画布上，
+ * 不是 DOM 文本，没法由词典实时改写，所以中文界面放中文片、英文界面放英文片，
+ * 三种降级路径（视频 / 静态替代帧 / poster）也必须一起换，否则英文界面会闪出中文画面。
  */
+
+/**
+ * 字幕里的两个分数。它们是影片帧里算出来的值（见 negotiation-demo.tsx 的
+ * SCORE_LOW / SCORE_HIGH），按约定不进词典，就留在这里；改影片评分配置时要同步。
+ */
+const FILM_SCORES = { first: 62, final: 86 } as const;
+
+/**
+ * 每种语言一套素材。英文素材要用 /demo-stage?lang=en 采：录制脚本
+ * （scripts/build-demo-video.mjs）默认只打 /demo-stage、输出名也写死为 negotiation.mp4 /
+ * negotiation-poster.jpg，录英文片时需要把页面地址与输出名指到这两条 -en 路径上，
+ * 否则会把中文素材覆盖掉。
+ */
+const FILM_ASSETS: Record<Locale, { video: string; poster: string }> = {
+  zh: { video: "/demo/negotiation.mp4", poster: "/demo/negotiation-poster.jpg" },
+  en: { video: "/demo/negotiation-en.mp4", poster: "/demo/negotiation-poster-en.jpg" },
+};
+
 export function ProductFilm({ className }: { className?: string }) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = React.useState(true);
   const [failed, setFailed] = React.useState(false);
+  const { locale, d } = useI18n();
+
+  const t = d.film.player;
+  const asset = FILM_ASSETS[locale];
 
   function toggle() {
     const video = videoRef.current;
@@ -49,7 +78,7 @@ export function ProductFilm({ className }: { className?: string }) {
           <video
             ref={videoRef}
             className="film-video absolute inset-0 size-full object-cover"
-            poster="/demo/negotiation-poster.jpg"
+            poster={asset.poster}
             autoPlay
             muted
             loop
@@ -59,7 +88,7 @@ export function ProductFilm({ className }: { className?: string }) {
             onPause={() => setPlaying(false)}
             onError={() => setFailed(true)}
           >
-            <source src="/demo/negotiation.mp4" type="video/mp4" />
+            <source src={asset.video} type="video/mp4" />
           </video>
         )}
 
@@ -68,8 +97,8 @@ export function ProductFilm({ className }: { className?: string }) {
             视频解码失败时用内联样式强制显示：`!block` 这种写法经 tailwind-merge
             合并后会被转义成 `.film-still\!block`，永远匹配不上，等于兜底失效。 */}
         <Image
-          src="/demo/negotiation-poster.jpg"
-          alt="链谈 Agent 谈判台演示：供应商提交条款、底线逐项核验、七维评分 86 分达标后转人工"
+          src={asset.poster}
+          alt={format(t.stillAlt, { brand: `${d.common.brand.name} ${d.common.brand.suffix}` })}
           fill
           sizes="(min-width: 1024px) 560px, 100vw"
           className="film-still object-cover"
@@ -85,7 +114,7 @@ export function ProductFilm({ className }: { className?: string }) {
             // aria-pressed 描述的是「这个开关有没有开着」。原来的 `!playing` 是反的：
             // 显示暂停图标（说明正在播）时却报 pressed=false。
             aria-pressed={playing}
-            aria-label={playing ? "暂停产品演示" : "播放产品演示"}
+            aria-label={playing ? t.pause : t.play}
             className="film-toggle absolute bottom-3 right-3 grid size-10 place-items-center rounded-full bg-[var(--ink)]/72 text-white backdrop-blur-[2px] transition-colors hover:bg-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
             {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
@@ -94,8 +123,8 @@ export function ProductFilm({ className }: { className?: string }) {
       </div>
 
       <figcaption className="border-t border-[var(--line)] px-5 py-3 text-xs leading-5 text-[var(--muted)]">
-        <span className="font-semibold text-[var(--ink)]">真实链路演示：</span>
-        自动接待 → 底线逐项核验 → 首次 62 分未达阈值 → AI 继续议价 → 重新校验 86 分 → 达标转人工。
+        <span className="font-semibold text-[var(--ink)]">{t.captionLead}</span>
+        {format(t.caption, { first: FILM_SCORES.first, final: FILM_SCORES.final })}
       </figcaption>
     </figure>
   );

@@ -56,6 +56,9 @@ function parseArgs(argv) {
     spawnServer: true,
     distDir: process.env.NEXT_DIST_DIR || ".next-film",
     ffmpeg: process.env.FFMPEG || "",
+    // 影片语言。zh 出 negotiation.mp4 / negotiation-poster.jpg（沿用既有文件名，
+    // 首页在中文下引用的就是它们）；en 出 -en 后缀的两份，供英文界面引用。
+    locale: process.env.DEMO_LOCALE || "zh",
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -67,9 +70,14 @@ function parseArgs(argv) {
     else if (arg === "--out") options.out = path.resolve(argv[++i]);
     else if (arg === "--dist-dir") options.distDir = argv[++i];
     else if (arg === "--ffmpeg") options.ffmpeg = argv[++i];
+    else if (arg === "--locale") options.locale = argv[++i];
     else if (arg === "--fps") FILM.fps = positiveNumber(argv[++i], "--fps");
     else if (arg === "--seconds") FILM.seconds = positiveNumber(argv[++i], "--seconds");
     else throw new Error(`未知参数：${arg}`);
+  }
+  if (options.locale !== "zh" && options.locale !== "en") {
+    // 语言拼错必须直接报错：否则会「成功」录出一份中文素材覆盖到英文文件名上。
+    throw new Error(`--locale 只支持 zh / en，收到「${options.locale}」`);
   }
   return options;
 }
@@ -93,6 +101,8 @@ const HELP = `
   --seconds N      影片时长，默认 ${FILM.seconds}
   --no-server      不要自动起 next dev（假定 --base-url 已经能访问）
   --dist-dir DIR   自动起服务时用的构建产物目录，默认 ${".next-film"}（避免和本地 npm run dev 互相覆盖）
+  --locale zh|en   出哪一种语言的片子，默认 zh。en 走 /demo-stage?lang=en，
+                   产物为 negotiation-en.mp4 / negotiation-poster-en.jpg
   --ffmpeg PATH    ffmpeg 可执行文件，默认查 PATH，再退回 <repo>/.tools/ffmpeg
 `;
 
@@ -360,8 +370,12 @@ async function main() {
   }
 
   const ffmpeg = resolveFfmpeg(options.ffmpeg);
-  const pageUrl = new URL("/demo-stage", options.baseUrl).href;
-  const previewDir = path.join(FRONTEND_DIR, ".demo-preview");
+  // 语言通过查询参数传给舞台页（而不是 cookie）：录制必须与浏览器里当前的
+  // 语言偏好无关，同一条命令永远录出同一份素材。
+  const pageUrl = new URL(options.locale === "zh" ? "/demo-stage" : `/demo-stage?lang=${options.locale}`, options.baseUrl).href;
+  /** 文件后缀：中文沿用既有名字，英文加 -en。 */
+  const suffix = options.locale === "zh" ? "" : `-${options.locale}`;
+  const previewDir = path.join(FRONTEND_DIR, `.demo-preview${suffix}`);
   const framesDir = path.join(FRONTEND_DIR, ".demo-frames");
 
   let server = null;
@@ -430,7 +444,7 @@ async function main() {
 
     await mkdir(options.out, { recursive: true });
     const totalFrames = Math.round(FILM.seconds * FILM.fps);
-    const outputFile = path.join(options.out, "negotiation.mp4");
+    const outputFile = path.join(options.out, `negotiation${suffix}.mp4`);
 
     if (options.keepFrames) {
       await rm(framesDir, { recursive: true, force: true });
@@ -513,7 +527,7 @@ async function main() {
     const posterPng = path.join(tmpdir(), `liantan-poster-${Date.now()}.png`);
     await writeFile(posterPng, await capturePng(cdp));
     try {
-      const posterJpg = path.join(options.out, "negotiation-poster.jpg");
+      const posterJpg = path.join(options.out, `negotiation-poster${suffix}.jpg`);
       await new Promise((resolve, reject) => {
         const converter = runFfmpeg(ffmpeg, [
           "-y", "-hide_banner", "-loglevel", "error",

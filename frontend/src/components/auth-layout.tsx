@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useI18n } from "@/lib/i18n/client";
 
 /**
  * 三个认证页共用的外壳：左边品牌区，右边表单区。
@@ -11,15 +15,17 @@ import { BrandMark } from "@/components/brand-mark";
  *
  * 窄屏：品牌区整体收起（只留一行品牌条），表单优先占满首屏——
  *   认证页的第一要务是让人把表填完，不是看宣传。
+ *
+ * 因为三个认证页本身都是客户端组件（表单状态只能留在客户端），它们直接 import 的
+ * 这个外壳也就落在客户端那一侧，所以文案用 useI18n 取，而不是服务端 getI18n——
+ * 客户端组件无法 import 服务端组件，那样会把 next/headers 带进浏览器包。
  */
-const RULES = [
-  { label: "目标价", value: "¥40.00" },
-  { label: "硬性价格上限", value: "¥43.00", hard: true },
-  { label: "最高起订量", value: "1000 件" },
-  { label: "最长交期", value: "15 天" },
-  { label: "最短账期", value: "30 天" },
-  { label: "转人工分数", value: "80" },
-];
+
+/**
+ * 底线样张里带「硬性」徽章的那一行。徽章的有无属于表格结构而不是文案
+ * （和首页「图标留在代码里、只把文字放进词典」是同一个处理），所以不随语言走。
+ */
+const HARD_RULE_INDEX = 1;
 
 export function AuthLayout({
   asideTitle,
@@ -30,6 +36,9 @@ export function AuthLayout({
   asideBody: string;
   children: React.ReactNode;
 }) {
+  const { d } = useI18n();
+  const t = d.auth.layout;
+
   return (
     <div className="relative min-h-screen bg-[var(--paper)]">
       <div className="ambient-grid anim-fade pointer-events-none absolute inset-0" aria-hidden="true" />
@@ -40,7 +49,7 @@ export function AuthLayout({
           <Link href="/" className="anim-rise inline-flex items-center gap-3">
             <BrandMark />
             <span className="text-lg font-bold tracking-tight">
-              链谈 <span className="text-[var(--accent-strong)]">Agent</span>
+              {d.common.brand.name} <span className="text-[var(--accent-strong)]">{d.common.brand.suffix}</span>
             </span>
           </Link>
 
@@ -49,17 +58,17 @@ export function AuthLayout({
 
           <div className="anim-rise anim-d3 mt-8 max-w-lg overflow-hidden rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)]">
             <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-3">
-              <span className="text-xs font-semibold text-[var(--muted)]">采购底线 · 示例（收纳盒 / 商品 A-2307）</span>
-              <span className="text-[11px] text-[var(--muted)]">按商品配置</span>
+              <span className="text-xs font-semibold text-[var(--muted)]">{t.rulesTitle}</span>
+              <span className="text-[11px] text-[var(--muted)]">{t.rulesScope}</span>
             </div>
             <dl className="divide-y divide-[var(--line)]">
-              {RULES.map((rule) => (
+              {t.rules.map((rule, index) => (
                 <div key={rule.label} className="flex items-center justify-between px-5 py-2.5">
                   <dt className="flex items-center gap-2 text-sm text-[var(--muted)]">
                     {rule.label}
-                    {rule.hard && (
+                    {index === HARD_RULE_INDEX && (
                       <span className="rounded-full bg-[var(--accent-faint)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-strong)]">
-                        硬性
+                        {t.hardBadge}
                       </span>
                     )}
                   </dt>
@@ -70,23 +79,39 @@ export function AuthLayout({
           </div>
 
           <p className="anim-rise anim-d4 mt-4 max-w-lg text-xs leading-6 text-[var(--muted)]">
-            以上阈值全部由你自己配置，可按商品单独覆盖。触碰任一项，程序当场拦截并说明原因，不交给模型判断。
+            {t.rulesNote}
           </p>
         </section>
 
         {/* 表单区 */}
-        <main className="w-full">
+        <main className="relative w-full">
+          {/* 桌面端语言切换：绝对定位在表单卡上方，不进网格流，因此不改变既有的
+              居中与间距（表单卡本身的高度决定这一列的高度）。 */}
+          <div className="absolute -top-10 right-0 hidden lg:block">
+            <LanguageSwitcher />
+          </div>
+
           {/* 窄屏品牌条：品牌区收起后，这里承担「这是哪、怎么回去」 */}
           <div className="mb-6 flex items-center justify-between lg:hidden">
             <Link href="/" className="flex items-center gap-2.5">
               <BrandMark />
               <span className="font-bold tracking-tight">
-                链谈 <span className="text-[var(--accent-strong)]">Agent</span>
+                {d.common.brand.name} <span className="text-[var(--accent-strong)]">{d.common.brand.suffix}</span>
               </span>
             </Link>
-            <Link href="/" className="text-xs font-semibold text-[var(--muted)] transition-colors hover:text-[var(--ink)]">
-              返回首页
-            </Link>
+            {/* 语言切换与「返回首页」并排放在右侧：切换是全局偏好，窄屏上也不该被藏起来。
+                420px 以下收起「返回首页」文字链——加上语言切换后，更窄的屏幕（375/360/320px）
+                放不下三个控件，硬塞会把品牌名挤到换行（英文品牌名更长，最先出问题）。
+                它与左侧品牌名指向同一个首页，所以窄屏仍有一条明确的回家路径。 */}
+            <div className="flex items-center gap-3">
+              <LanguageSwitcher />
+              <Link
+                href="/"
+                className="hidden whitespace-nowrap text-xs font-semibold text-[var(--muted)] transition-colors hover:text-[var(--ink)] min-[420px]:inline"
+              >
+                {d.common.actions.backHome}
+              </Link>
+            </div>
           </div>
 
           <div className="anim-slide-right overflow-hidden rounded-[var(--radius-card)] border border-[var(--line)] bg-[var(--surface)]">

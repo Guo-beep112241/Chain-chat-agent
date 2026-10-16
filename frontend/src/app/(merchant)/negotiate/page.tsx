@@ -48,27 +48,19 @@ import {
   type Negotiation,
 } from "@/lib/api";
 import { DEBUG_TOOLS_ENABLED } from "@/lib/constants";
+import { localeTag } from "@/lib/i18n/config";
+import { useI18n } from "@/lib/i18n/client";
+import { format } from "@/lib/i18n/types";
 import { subscribeNegotiations } from "@/lib/stream";
 import { cn } from "@/lib/utils";
 
-const statusText: Record<string, string> = {
-  ai_active: "AI 自动谈判中",
-  manual_required: "等待人工接管",
-  human_active: "人工沟通中",
-  closed: "已结束",
-};
 const MESSAGE_PAGE_SIZE = 10;
 
 type SessionFilter = "all" | "pending" | "ai" | "human" | "closed";
 type SessionSort = "recent" | "score";
 
-const SESSION_FILTERS: { key: SessionFilter; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "pending", label: "待接管" },
-  { key: "ai", label: "AI 谈判中" },
-  { key: "human", label: "人工中" },
-  { key: "closed", label: "已结束" },
-];
+/** 筛选项的 key 与词典 filters 的键一一对应；展示名在组件内从词典取。 */
+const SESSION_FILTERS: SessionFilter[] = ["all", "pending", "ai", "human", "closed"];
 
 function matchesFilter(item: Negotiation, filter: SessionFilter): boolean {
   if (filter === "pending") return item.classification === "qualified" && item.status === "ai_active";
@@ -91,6 +83,8 @@ function lastActivityAt(item: Negotiation): number {
 }
 
 export default function NegotiatePage() {
+  const { locale, d } = useI18n();
+  const t = d.merchant.negotiate;
   const [sessions, setSessions] = useState<Negotiation[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -104,6 +98,15 @@ export default function NegotiatePage() {
   const [filter, setFilter] = useState<SessionFilter>("all");
   const [sort, setSort] = useState<SessionSort>("recent");
   const toast = useToast();
+
+  // 后端返回的状态值（ai_active 等）原样保留，只把显示名换成当前语言。
+  const statusText: Record<string, string> = {
+    ai_active: t.status.aiActive,
+    manual_required: t.status.manualRequired,
+    human_active: t.status.humanActive,
+    closed: t.status.closed,
+  };
+
   const [visibleMessageCount, setVisibleMessageCount] =
     useState(MESSAGE_PAGE_SIZE);
   const messageViewportRef = useRef<HTMLDivElement>(null);
@@ -220,6 +223,9 @@ export default function NegotiatePage() {
     if (viewport.scrollTop < 48) loadOlderMessages();
   }
 
+  // 会话列表加载失败的兜底文案先取出成字符串：load 是 useCallback，
+  // 直接闭包引用词典对象会让每次渲染都换一个新函数、把订阅反复重建。
+  const loadErrorText = t.errors.load;
   const load = useCallback(async (preferredId?: number | null) => {
     try {
       const items = await getNegotiations();
@@ -234,11 +240,11 @@ export default function NegotiatePage() {
       );
       setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "无法读取谈判会话");
+      setError(e instanceof Error ? e.message : loadErrorText);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadErrorText]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -256,9 +262,9 @@ export default function NegotiatePage() {
     try {
       replaceSession((await handoffNegotiation(active.id)) as Negotiation);
       setHandoffConfirmOpen(false);
-      toast.push("success", "已接管会话，AI 自动回复已停止");
+      toast.push("success", t.handoffDone);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "接管失败");
+      setError(e instanceof Error ? e.message : t.errors.handoff);
     }
   }
   async function resumeAi() {
@@ -266,7 +272,7 @@ export default function NegotiatePage() {
     try {
       replaceSession(await resumeAiNegotiation(active.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "无法恢复 AI");
+      setError(e instanceof Error ? e.message : t.errors.resume);
     }
   }
   async function toggleVerify(fileId: string) {
@@ -274,7 +280,7 @@ export default function NegotiatePage() {
       await toggleQualificationVerified(fileId);
       await load(selectedId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "核验状态更新失败");
+      setError(e instanceof Error ? e.message : t.errors.verify);
     }
   }
   async function send(e: FormEvent) {
@@ -300,7 +306,7 @@ export default function NegotiatePage() {
       setDraft("");
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发送失败");
+      setError(err instanceof Error ? err.message : t.errors.send);
     } finally {
       setSending(false);
     }
@@ -341,9 +347,9 @@ export default function NegotiatePage() {
       <Card className="mx-auto max-w-xl">
         <CardContent className="p-10 text-center">
           <Inbox className="mx-auto size-10 text-[var(--muted)]" />
-          <h1 className="mt-4 text-xl font-bold">还没有谈判会话</h1>
+          <h1 className="mt-4 text-xl font-bold">{t.empty.title}</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            供应商提交资料后，会自动在这里生成独立会话。
+            {t.empty.body}
           </p>
         </CardContent>
       </Card>
@@ -357,9 +363,9 @@ export default function NegotiatePage() {
   const classificationText =
     (
       {
-        negotiating: "AI 拉锯",
-        qualified: "优质候选",
-        eliminated: "当前方案超出底线",
+        negotiating: t.classification.negotiating,
+        qualified: t.classification.qualified,
+        eliminated: t.classification.eliminated,
       } as Record<string, string>
     )[active.classification] ?? active.classification;
   const scoreMatches = active.messages
@@ -383,13 +389,13 @@ export default function NegotiatePage() {
     <>
             <div className="space-y-3 border-b border-[var(--line)] p-4">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-bold">洽谈会话</div>
+                <div className="text-sm font-bold">{t.sessionPanel.title}</div>
                 <button
                   type="button"
                   onClick={() => setSort((current) => (current === "recent" ? "score" : "recent"))}
                   className="rounded-[var(--radius-chip)] border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)]"
                 >
-                  {sort === "recent" ? "最近活跃" : "评分最高"}
+                  {sort === "recent" ? t.sessionPanel.sortRecent : t.sessionPanel.sortScore}
                 </button>
               </div>
               <div className="relative">
@@ -397,25 +403,25 @@ export default function NegotiatePage() {
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索供应商、商品或地区"
-                  aria-label="搜索洽谈会话"
+                  placeholder={t.sessionPanel.searchPlaceholder}
+                  aria-label={t.sessionPanel.searchLabel}
                   className="h-8 w-full rounded-[var(--radius-chip)] border border-[var(--line)] bg-[var(--surface)] pl-8 pr-2 text-xs outline-none transition placeholder:text-[var(--muted)] focus:border-[var(--accent)]"
                 />
               </div>
               <div className="flex flex-wrap gap-1">
                 {SESSION_FILTERS.map((item) => (
                   <button
-                    key={item.key}
+                    key={item}
                     type="button"
-                    onClick={() => setFilter(item.key)}
+                    onClick={() => setFilter(item)}
                     className={cn(
                       "tnum rounded-[var(--radius-chip)] px-2 py-1 text-[11px] font-semibold transition",
-                      filter === item.key
+                      filter === item
                         ? "bg-[var(--ink)] text-white"
                         : "text-[var(--muted)] hover:bg-[var(--paper)] hover:text-[var(--ink)]",
                     )}
                   >
-                    {item.label} {filterCounts[item.key]}
+                    {t.filters[item]} {filterCounts[item]}
                   </button>
                 ))}
               </div>
@@ -449,7 +455,7 @@ export default function NegotiatePage() {
               )) : (
                 <div className="px-4 py-10 text-center text-xs text-[var(--muted)]">
                   <Inbox className="mx-auto mb-2 size-6" />
-                  {sessions.length ? "没有符合条件的会话" : "暂无洽谈会话"}
+                  {sessions.length ? t.sessionPanel.emptyFiltered : t.sessionPanel.empty}
                 </div>
               )}
             </div>
@@ -462,13 +468,13 @@ export default function NegotiatePage() {
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--accent-strong)]">
             <span className="h-px w-5 bg-[var(--accent)]" />
-            实时谈判
+            {t.eyebrow}
           </div>
           <h1 className="text-[28px] font-bold tracking-tight">
             {active.supplier.company_name}
           </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            {active.product.name} · {active.supplier.region} · 会话 #{active.id}
+            {format(t.sessionMeta, { product: active.product.name, region: active.supplier.region, id: active.id })}
           </p>
         </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -481,7 +487,7 @@ export default function NegotiatePage() {
                   view === "buyer" && "bg-[var(--ink)] text-white",
                 )}
               >
-                采购方视角
+                {t.views.buyer}
               </button>
               <button
                 onClick={() => changeView("supplier-test")}
@@ -490,7 +496,7 @@ export default function NegotiatePage() {
                   view === "supplier-test" && "bg-[var(--accent)] text-white",
                 )}
               >
-                模拟供应商
+                {t.views.supplierTest}
               </button>
             </div>
           )}
@@ -510,15 +516,14 @@ export default function NegotiatePage() {
             onClick={() => void load(selectedId)}
           >
             <RefreshCw className="size-3.5" />
-            刷新
+            {t.refresh}
           </Button>
         </div>
       </div>
       {view === "supplier-test" && (
         <div className="mb-5 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning-faint)] px-4 py-3 text-xs leading-5 text-[var(--warning)]">
-          <strong>本地测试模式：</strong>
-          你发送的内容会被记录为当前供应商的真实发言，并触发采购 AI
-          回复。达到优质候选阈值后，AI 仍会按规则停止自动回复。
+          <strong>{t.testMode.strong}</strong>
+          {t.testMode.body}
         </div>
       )}
       {error && (
@@ -532,15 +537,15 @@ export default function NegotiatePage() {
           <div className="mb-5 flex flex-col gap-4 rounded-2xl border border-[var(--accent)]/25 bg-[var(--accent-faint)] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="text-sm font-bold">
-                该供应商已达到建议接管标准
+                {t.qualifiedBanner.title}
               </div>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                AI 仍在继续回复；只有点击接管后才会切换为人工沟通。
+                {t.qualifiedBanner.body}
               </p>
             </div>
             <Button variant="accent" onClick={() => setHandoffConfirmOpen(true)}>
               <Hand className="size-4" />
-              现在接管
+              {t.qualifiedBanner.action}
             </Button>
           </div>
         )}
@@ -556,10 +561,10 @@ export default function NegotiatePage() {
           <Badge className={cn("border-0 px-2.5 py-1", active.classification === "qualified" ? "bg-[var(--success-faint)] text-[var(--success)]" : active.classification === "eliminated" ? "bg-[var(--danger-faint)] text-[var(--danger)]" : "bg-[var(--accent-faint)] text-[var(--accent-strong)]")}>
             {classificationText}
           </Badge>
-          <span className="tnum text-xs text-[var(--muted)]">报价 ¥{active.quoted_price}</span>
-          <span className="tnum text-xs text-[var(--muted)]">起订量 {active.moq} 件</span>
-          <span className="tnum text-xs text-[var(--muted)]">交期 {active.lead_days} 天</span>
-          <span className="tnum text-xs text-[var(--muted)]">账期 {active.payment_days} 天</span>
+          <span className="tnum text-xs text-[var(--muted)]">{t.fields.quote} {format(t.units.price, { value: active.quoted_price })}</span>
+          <span className="tnum text-xs text-[var(--muted)]">{t.fields.moq} {format(t.units.moq, { value: active.moq })}</span>
+          <span className="tnum text-xs text-[var(--muted)]">{t.fields.lead} {format(t.units.days, { value: active.lead_days })}</span>
+          <span className="tnum text-xs text-[var(--muted)]">{t.fields.payment} {format(t.units.days, { value: active.payment_days })}</span>
         </CardContent>
       </Card>
 
@@ -579,14 +584,14 @@ export default function NegotiatePage() {
               onClick={() => setMobileListOpen(true)}
             >
               <MessagesSquare className="size-3.5" />
-              切换会话
+              {t.conversation.switchSession}
             </Button>
             <div className="hidden items-center gap-2 text-xs text-[var(--muted)] lg:flex">
               <ShieldCheck className="size-4 text-[var(--success)]" />
-              每个会话单独保存消息和状态
+              {t.conversation.savedHint}
             </div>
             <span className="tnum text-xs text-[var(--muted)]">
-              {active.messages.length} 条消息
+              {format(t.conversation.messageCount, { count: active.messages.length })}
             </span>
           </div>
           <div
@@ -601,7 +606,7 @@ export default function NegotiatePage() {
                 onClick={loadOlderMessages}
                 className="mx-auto block rounded-full bg-[var(--paper-deep)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-[var(--ink)]"
               >
-                向上滚动加载更早消息
+                {t.conversation.loadOlder}
               </button>
             )}
             {active.messages.length ? (
@@ -613,7 +618,7 @@ export default function NegotiatePage() {
               <div className="grid flex-1 place-items-center text-center text-sm text-[var(--muted)]">
                 <div>
                   <Inbox className="mx-auto mb-3 size-8" />
-                  会话已创建，尚无沟通消息
+                  {t.conversation.empty}
                 </div>
               </div>
             )}
@@ -627,13 +632,13 @@ export default function NegotiatePage() {
               active.classification === "qualified" &&
               active.status === "ai_active" && (
                 <div className="mb-2 rounded-lg bg-[var(--warning-faint)] px-2.5 py-1.5 text-xs text-[var(--warning)]">
-                  该会话已达建议接管标准；商家点击接管前，AI 仍会继续回复。
+                  {t.conversation.testStandardNote}
                 </div>
               )}
             <div className="mb-2 text-xs font-semibold">
               {view === "supplier-test"
-                ? `以“${active.supplier.company_name}”身份发言`
-                : "采购方人工回复"}
+                ? format(t.conversation.asSupplier, { name: active.supplier.company_name })
+                : t.conversation.asBuyer}
             </div>
             <div className="relative">
               <Textarea
@@ -651,11 +656,11 @@ export default function NegotiatePage() {
                 placeholder={
                   view === "supplier-test"
                     ? supplierCanSend
-                      ? "输入供应商的报价、让步或问题，发送后等待采购 AI 回复…"
-                      : "该会话已经结束，不能继续发送"
+                      ? t.conversation.placeholderSupplier
+                      : t.conversation.placeholderClosed
                     : humanMode
-                      ? "输入给供应商的消息…"
-                      : "AI 正在自动接待，接管后可手动回复"
+                      ? t.conversation.placeholderBuyer
+                      : t.conversation.placeholderAiActive
                 }
                 className="min-h-20 pr-14"
               />
@@ -663,7 +668,7 @@ export default function NegotiatePage() {
                 type="submit"
                 variant="accent"
                 size="icon"
-                aria-label="发送消息"
+                aria-label={t.conversation.send}
                 disabled={
                   sending ||
                   !draft.trim() ||
@@ -677,8 +682,8 @@ export default function NegotiatePage() {
             <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--muted)]">
               <Info className="size-3" />
               {view === "supplier-test"
-                ? "测试发言与 AI 回复都会写入当前供应商会话"
-                : "人工消息会写入当前供应商的谈判记录"}
+                ? t.conversation.hintSupplier
+                : t.conversation.hintBuyer}
             </div>
           </form>
         </Card>
@@ -687,7 +692,7 @@ export default function NegotiatePage() {
           <Card>
             <CardContent className="p-5">
               <div className="text-xs font-semibold text-[var(--muted)]">
-                供应商综合评分
+                {t.analysis.scoreTitle}
               </div>
               <div className="tnum mt-1 text-4xl font-bold">
                 {active.score}
@@ -697,16 +702,16 @@ export default function NegotiatePage() {
                 </span>
               </div>
               <div className="mt-5 grid grid-cols-2 gap-2 text-xs">
-                <Stat label="报价" value={`¥${active.quoted_price}`} />
-                <Stat label="起订量" value={`${active.moq} 件`} />
-                <Stat label="交期" value={`${active.lead_days} 天`} />
-                <Stat label="联系人" value={active.supplier.contact_name} />
+                <Stat label={t.fields.quote} value={format(t.units.price, { value: active.quoted_price })} />
+                <Stat label={t.fields.moq} value={format(t.units.moq, { value: active.moq })} />
+                <Stat label={t.fields.lead} value={format(t.units.days, { value: active.lead_days })} />
+                <Stat label={t.fields.contact} value={active.supplier.contact_name} />
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-5">
-              <div className="text-sm font-bold">规则结果</div>
+              <div className="text-sm font-bold">{t.analysis.rules}</div>
               <div className="mt-3 text-xs text-[var(--muted)]">
                 {active.hard_fail_reasons.length ? (
                   active.hard_fail_reasons.map((reason) => (
@@ -718,7 +723,7 @@ export default function NegotiatePage() {
                 ) : (
                   <div className="flex gap-2 text-[var(--success)]">
                     <CheckCircle2 className="size-4" />
-                    已通过采购底线
+                    {t.analysis.passedLimits}
                   </div>
                 )}
               </div>
@@ -729,33 +734,33 @@ export default function NegotiatePage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-sm font-bold">
                   <ClipboardList className="size-4 text-[var(--accent)]" />
-                  AI 谈判摘要
+                  {t.analysis.summaryTitle}
                 </div>
                 <span className="text-[11px] text-[var(--muted)]">
-                  自动生成
+                  {t.analysis.autoGenerated}
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <Stat label="最新报价" value={`¥${active.quoted_price}`} />
-                <Stat label="最新起订量" value={`${active.moq} 件`} />
-                <Stat label="账期" value={`${active.payment_days} 天`} />
-                <Stat label="交期" value={`${active.lead_days} 天`} />
+                <Stat label={t.analysis.latestQuote} value={format(t.units.price, { value: active.quoted_price })} />
+                <Stat label={t.analysis.latestMoq} value={format(t.units.moq, { value: active.moq })} />
+                <Stat label={t.fields.payment} value={format(t.units.days, { value: active.payment_days })} />
+                <Stat label={t.fields.lead} value={format(t.units.days, { value: active.lead_days })} />
               </div>
               <div className="mt-3 space-y-1.5 text-xs text-[var(--muted)]">
                 <div>
-                  已谈{" "}
-                  <span className="font-bold text-[var(--ink)]">{rounds}</span>{" "}
-                  轮 · 当前分类{" "}
+                  {t.analysis.roundsLead}
+                  <span className="font-bold text-[var(--ink)]">{rounds}</span>
+                  {t.analysis.roundsTail}
                   <span className="font-bold text-[var(--ink)]">
                     {classificationText}
                   </span>
                 </div>
                 {scoreTrail.length > 0 && (
-                  <div>评分轨迹：{scoreTrail.join(" → ")}</div>
+                  <div>{format(t.analysis.scoreTrail, { trail: scoreTrail.join(" → ") })}</div>
                 )}
                 {lastSupplierMessage && (
                   <div className="leading-5">
-                    供应商最新发言：{lastSupplierMessage.content.slice(0, 60)}
+                    {format(t.analysis.lastSupplier, { content: lastSupplierMessage.content.slice(0, 60) })}
                     {lastSupplierMessage.content.length > 60 ? "…" : ""}
                   </div>
                 )}
@@ -767,10 +772,10 @@ export default function NegotiatePage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-sm font-bold">
                   <FileBadge2 className="size-4 text-[var(--accent)]" />
-                  资质文件 · 人工核验
+                  {t.files.title}
                 </div>
                 <span className="text-[11px] text-[var(--muted)]">
-                  {active.supplier.qualification_files.length} 份
+                  {format(t.files.count, { count: active.supplier.qualification_files.length })}
                 </span>
               </div>
               {active.supplier.qualification_files.length ? (
@@ -779,10 +784,10 @@ export default function NegotiatePage() {
                     // OCR 状态枚举集中在一处，避免散落的四组条件判断把行结构撑变形。
                     const status =
                       file.ocr_status === "passed"
-                        ? { label: "识别一致", tone: "text-[var(--success)]" }
+                        ? { label: t.files.statusPassed, tone: "text-[var(--success)]" }
                         : file.ocr_status === "mismatch"
-                          ? { label: "识别不一致", tone: "text-[var(--danger)]" }
-                          : { label: "转人工核验", tone: "text-[var(--warning)]" };
+                          ? { label: t.files.statusMismatch, tone: "text-[var(--danger)]" }
+                          : { label: t.files.statusManual, tone: "text-[var(--warning)]" };
                     return (
                       <div
                         key={file.id}
@@ -797,7 +802,7 @@ export default function NegotiatePage() {
                             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--muted)]">
                               <span className="tnum">{Math.max(1, Math.round(file.size_bytes / 1024))} KB</span>
                               <span>·</span>
-                              <span className="tnum">{new Date(file.uploaded_at).toLocaleDateString("zh-CN")}</span>
+                              <span className="tnum">{new Date(file.uploaded_at).toLocaleDateString(localeTag(locale))}</span>
                               <span>·</span>
                               <span className={cn("font-semibold", status.tone)}>{status.label}</span>
                             </div>
@@ -817,7 +822,7 @@ export default function NegotiatePage() {
                             onClick={() => void openQualificationFile(file.id)}
                           >
                             <ExternalLink className="size-3.5" />
-                            查看文件
+                            {t.files.view}
                           </Button>
                           <Button
                             size="sm"
@@ -827,7 +832,7 @@ export default function NegotiatePage() {
                             onClick={() => void toggleVerify(file.id)}
                           >
                             <BadgeCheck className="size-3.5" />
-                            {file.verified ? "已核验" : "标记核验"}
+                            {file.verified ? t.files.verified : t.files.markVerified}
                           </Button>
                         </div>
                       </div>
@@ -836,7 +841,7 @@ export default function NegotiatePage() {
                 </div>
               ) : (
                 <div className="mt-3 text-xs text-[var(--muted)]">
-                  该供应商未上传资质文件（未勾选资质时无需上传）。
+                  {t.files.empty}
                 </div>
               )}
             </CardContent>
@@ -846,7 +851,7 @@ export default function NegotiatePage() {
               <Link href={`/supplier/chat?id=${active.id}`} className="block">
                 <Button variant="outline" size="lg" className="w-full">
                   <MessageSquare className="size-4" />
-                  查看 AI 洽谈对话
+                  {t.actions.viewChat}
                 </Button>
               </Link>
             )}
@@ -858,7 +863,7 @@ export default function NegotiatePage() {
               onClick={() => setHandoffConfirmOpen(true)}
             >
               <Pause className="size-4" />
-              停止 AI 并接管
+              {t.actions.stopAi}
             </Button>
           )}
           {humanMode && active.classification === "negotiating" && (
@@ -869,7 +874,7 @@ export default function NegotiatePage() {
               onClick={() => void resumeAi()}
             >
               <RotateCcw className="size-4" />
-              恢复 AI 自动谈判
+              {t.actions.resumeAi}
             </Button>
           )}
         </div>
@@ -879,8 +884,8 @@ export default function NegotiatePage() {
       <Dialog
         open={mobileListOpen}
         onClose={() => setMobileListOpen(false)}
-        title="洽谈会话"
-        description={`共 ${sessions.length} 个供应商，点击切换`}
+        title={t.sessionPanel.title}
+        description={format(t.mobileList.description, { count: sessions.length })}
         size="md"
       >
         <div className="flex max-h-[60vh] flex-col overflow-hidden rounded-[var(--radius-control)] border border-[var(--line)]">
@@ -892,12 +897,12 @@ export default function NegotiatePage() {
       <Dialog
         open={handoffConfirmOpen}
         onClose={() => setHandoffConfirmOpen(false)}
-        title="确认接管这个会话？"
-        description="接管后 AI 将停止自动回复，后续由你人工沟通。"
+        title={t.handoffDialog.title}
+        description={t.handoffDialog.description}
         footer={
           <>
-            <Button variant="outline" className="flex-1" onClick={() => setHandoffConfirmOpen(false)}>取消</Button>
-            <Button variant="accent" className="flex-1" onClick={() => void takeOver()}>确认接管</Button>
+            <Button variant="outline" className="flex-1" onClick={() => setHandoffConfirmOpen(false)}>{d.common.actions.cancel}</Button>
+            <Button variant="accent" className="flex-1" onClick={() => void takeOver()}>{t.handoffDialog.confirm}</Button>
           </>
         }
       >
@@ -905,7 +910,7 @@ export default function NegotiatePage() {
           <div className="rounded-[var(--radius-control)] bg-[var(--paper)] p-3 text-xs leading-6 text-[var(--muted)]">
             <div className="text-sm font-semibold text-[var(--ink)]">{active.supplier.company_name}</div>
             <div className="tnum mt-1">
-              {active.product.name} · 报价 ¥{active.quoted_price} · 起订量 {active.moq} 件 · 综合评分 {active.score}
+              {format(t.handoffDialog.meta, { product: active.product.name, price: active.quoted_price, moq: active.moq, score: active.score })}
             </div>
           </div>
         )}

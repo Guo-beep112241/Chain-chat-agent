@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
+import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 type Tone = "success" | "error" | "info";
@@ -24,6 +25,8 @@ const DURATION_MS = 3600;
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
+  // ToastProvider 挂在 LanguageProvider 之内（见 app/layout.tsx），因此这里能拿到当前语言。
+  const { d } = useI18n();
 
   const remove = useCallback((id: number) => {
     setItems((current) => current.filter((item) => item.id !== id));
@@ -57,7 +60,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => remove(item.id)}
-                aria-label="关闭提示"
+                aria-label={d.common.a11y.closeToast}
                 className="grid size-6 shrink-0 place-items-center rounded opacity-70 transition-opacity hover:opacity-100"
               >
                 <X className="size-3.5" />

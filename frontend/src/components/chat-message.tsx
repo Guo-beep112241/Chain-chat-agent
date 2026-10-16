@@ -2,6 +2,9 @@
 
 import { Fragment } from "react";
 import { AlertTriangle, Bot, Info, UserRound } from "lucide-react";
+import { localeTag, type Locale } from "@/lib/i18n/config";
+import { useI18n } from "@/lib/i18n/client";
+import type { Dictionary } from "@/lib/i18n/dict";
 import { cn } from "@/lib/utils";
 
 export type ChatMessage = {
@@ -15,6 +18,7 @@ export type ChatMessage = {
 const TIME_GROUP_GAP_MS = 5 * 60 * 1000;
 
 // 模型不可用时的系统提示：既匹配后端的新文案，也兼容历史库里已经写成 AI 发言的旧兜底文案。
+// 这里比对的是接口返回的正文，属于数据而非展示文案，两种语言下都保持原样。
 const SERVICE_NOTICE_PREFIXES = ["AI 服务暂时不可用", "模型服务暂时不可用"];
 
 function isServiceNotice(message: ChatMessage): boolean {
@@ -26,17 +30,17 @@ function dayKey(iso: string): string {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-function formatDay(iso: string): string {
+function formatDay(iso: string, locale: Locale, labels: Dictionary["supplier"]["message"]): string {
   const date = new Date(iso);
   const today = new Date();
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-  if (dayKey(iso) === dayKey(today.toISOString())) return "今天";
-  if (dayKey(iso) === dayKey(yesterday.toISOString())) return "昨天";
-  return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+  if (dayKey(iso) === dayKey(today.toISOString())) return labels.today;
+  if (dayKey(iso) === dayKey(yesterday.toISOString())) return labels.yesterday;
+  return date.toLocaleDateString(localeTag(locale), { year: "numeric", month: "long", day: "numeric" });
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+function formatTime(iso: string, locale: Locale): string {
+  return new Date(iso).toLocaleTimeString(localeTag(locale), { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /**
@@ -54,6 +58,9 @@ export function ChatMessageItem({
   supplierName: string;
   showTimestamp?: boolean;
 }) {
+  const { locale, d } = useI18n();
+  const t = d.supplier.message;
+
   if (message.sender === "system" || isServiceNotice(message)) {
     const alert = isServiceNotice(message);
     return (
@@ -99,20 +106,20 @@ export function ChatMessageItem({
           {message.sender === "ai" && (
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-[var(--ai-on-dark)]">
               <Bot className="size-3" />
-              AI 采购助手
+              {t.ai}
             </div>
           )}
           {message.sender === "human" && (
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-white/75">
               <UserRound className="size-3" />
-              店长本人
+              {t.human}
             </div>
           )}
           {message.content}
         </div>
         {showTimestamp && (
           <div className="tnum mt-1 text-[11px] text-[var(--muted)]">
-            {formatTime(message.created_at)}
+            {formatTime(message.created_at, locale)}
           </div>
         )}
       </div>
@@ -132,6 +139,8 @@ export function ChatMessageList({
   messages: ChatMessage[];
   supplierName: string;
 }) {
+  const { locale, d } = useI18n();
+
   return (
     <>
       {messages.map((message, index) => {
@@ -146,7 +155,7 @@ export function ChatMessageList({
             {newDay && (
               <div className="flex justify-center">
                 <span className="tnum rounded-full bg-[var(--paper-deep)] px-3 py-1 text-[11px] text-[var(--muted)]">
-                  {formatDay(message.created_at)}
+                  {formatDay(message.created_at, locale, d.supplier.message)}
                 </span>
               </div>
             )}

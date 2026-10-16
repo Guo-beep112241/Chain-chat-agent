@@ -2,6 +2,9 @@
 
 import * as React from "react";
 import { BadgeCheck, Bell, Bot, Check, CircleCheck, FileBadge2, Handshake, ShieldCheck, TriangleAlert } from "lucide-react";
+import type { Locale } from "@/lib/i18n/config";
+import { getDictionary, type Dictionary } from "@/lib/i18n/dict";
+import { format } from "@/lib/i18n/types";
 import { cn } from "@/lib/utils";
 
 /* ============================================================================
@@ -27,29 +30,32 @@ export const DEMO_SECONDS = 16.2;
 /** 五幕的起点（秒）：顶部进度轨、场景位移、脚本取帧共用这一份时间轴。 */
 const SCENE = { reception: 0, bottomline: 2.8, scoring: 6.6, recheck: 10, handoff: 13.2 } as const;
 
+/** 三幕进度轨：步骤号本身是数字，留在代码里；标签取词典（dict/film.ts 的 rail）。 */
 const RAIL = [
-  { step: "01", label: "自动接待" },
-  { step: "02", label: "底线校验" },
-  { step: "03", label: "分层转人工" },
+  { step: "01", key: "reception" },
+  { step: "02", key: "bottomline" },
+  { step: "03", key: "handoff" },
 ] as const;
 
-const SUPPLIER = { name: "东莞恒达五金", contact: "陈经理" };
+/**
+ * 供应商首次提交的条款：金额、件数、天数全是数字，一律留在代码里；单位取自词典。
+ * 底线阈值与让步后的条款也放在这里，让「哪几项变了」只有一个来源。
+ */
+const FIRST_TERMS = { price: "¥42.50", moq: 800, leadTime: 12, payment: 30 } as const;
 
+/** 商家的硬性底线：与首页「采购底线可配置」一一对应，任一触线即当场说明。 */
+const LIMITS = { price: "¥43.00", moq: 1000, leadTime: 15, payment: 30 } as const;
+
+/** 供应商让步后的条款：价格、起订量、账期三项的变化正是重新校验的输入。 */
+const CONCEDED = { price: "¥41.80", moq: 500, payment: 45 } as const;
+
+/** 报价单的四栏。key 取词典 terms，unit 取词典 units。 */
 const QUOTE = [
-  { label: "报价", value: "¥42.50", unit: "/ 件" },
-  { label: "起订量", value: "800", unit: "件" },
-  { label: "交期", value: "12", unit: "天" },
-  { label: "账期", value: "30", unit: "天" },
-];
-
-/** 硬性底线：与首页「采购底线可配置」一一对应，任一触线即当场说明。 */
-const BOTTOM_LINES = [
-  { label: "报价", rule: "不高于硬性价格上限 ¥43.00", value: "¥42.50" },
-  { label: "起订量", rule: "不高于硬性上限 1000 件", value: "800 件" },
-  { label: "交期", rule: "不超过 15 天", value: "12 天" },
-  { label: "账期", rule: "不低于 30 天", value: "30 天" },
-  { label: "必备资质", rule: "营业执照等文件已上传", value: "已核验" },
-];
+  { key: "quote", value: FIRST_TERMS.price, unit: "perPiece" },
+  { key: "moq", value: String(FIRST_TERMS.moq), unit: "pieces" },
+  { key: "leadTime", value: String(FIRST_TERMS.leadTime), unit: "days" },
+  { key: "payment", value: String(FIRST_TERMS.payment), unit: "days" },
+] as const;
 
 /**
  * 七维加权：low 是首次评分（合计 62，未达阈值），high 是供应商让步后重算的分
@@ -57,23 +63,51 @@ const BOTTOM_LINES = [
  * 议价谈的是起订量、账期与价格——哪几维变了一目了然。
  */
 const DIMENSIONS = [
-  { label: "价格竞争力", low: 20, high: 27, max: 30 },
-  { label: "起订量", low: 7, high: 13, max: 15 },
-  { label: "资质完整度", low: 20, high: 20, max: 20 },
-  { label: "交期", low: 6, high: 8, max: 10 },
-  { label: "账期", low: 4, high: 8, max: 10 },
-  { label: "区域匹配", low: 2, high: 3, max: 5 },
-  { label: "沟通配合度", low: 3, high: 7, max: 10 },
-];
+  { key: "price", low: 20, high: 27, max: 30 },
+  { key: "moq", low: 7, high: 13, max: 15 },
+  { key: "credentials", low: 20, high: 20, max: 20 },
+  { key: "leadTime", low: 6, high: 8, max: 10 },
+  { key: "payment", low: 4, high: 8, max: 10 },
+  { key: "region", low: 2, high: 3, max: 5 },
+  { key: "responsiveness", low: 3, high: 7, max: 10 },
+] as const;
 const SCORE_LOW = DIMENSIONS.reduce((sum, item) => sum + item.low, 0);
 const SCORE_HIGH = DIMENSIONS.reduce((sum, item) => sum + item.high, 0);
 const THRESHOLD = 80;
 
-const DELTAS = [
-  { label: "报价", from: "¥42.50", to: "¥41.80" },
-  { label: "起订量", from: "800 件", to: "500 件" },
-  { label: "账期", from: "30 天", to: "45 天" },
-];
+/** 影片每一幕都要词典；类型取自聚合后的总表，键写错在 tsc 阶段就会报错。 */
+type FilmDict = Dictionary["film"];
+
+interface SceneProps {
+  time: number;
+  d: FilmDict;
+}
+
+/**
+ * 底线核验的五行的「规则 + 实际值」。数字留在代码里，字段名、规则与单位取自词典，
+ * 规则里的 {limit} 在这里填空——词典因此不含任何数字，改阈值也只有一处要改。
+ */
+function bottomLines(d: FilmDict) {
+  const u = d.units;
+  const r = d.bottomline.rules;
+  return [
+    { key: "quote", value: FIRST_TERMS.price, rule: format(r.quote, { limit: LIMITS.price }) },
+    { key: "moq", value: `${FIRST_TERMS.moq} ${u.pieces}`, rule: format(r.moq, { limit: `${LIMITS.moq} ${u.pieces}` }) },
+    { key: "leadTime", value: `${FIRST_TERMS.leadTime} ${u.days}`, rule: format(r.leadTime, { limit: `${LIMITS.leadTime} ${u.days}` }) },
+    { key: "payment", value: `${FIRST_TERMS.payment} ${u.days}`, rule: format(r.payment, { limit: `${LIMITS.payment} ${u.days}` }) },
+    { key: "credentials", value: d.bottomline.verified, rule: r.credentials },
+  ] as const;
+}
+
+/** 让步后变化的三个字段：左值来自首次条款，右值来自让步条款。 */
+function deltas(d: FilmDict) {
+  const u = d.units;
+  return [
+    { key: "quote", from: FIRST_TERMS.price, to: CONCEDED.price },
+    { key: "moq", from: `${FIRST_TERMS.moq} ${u.pieces}`, to: `${CONCEDED.moq} ${u.pieces}` },
+    { key: "payment", from: `${FIRST_TERMS.payment} ${u.days}`, to: `${CONCEDED.payment} ${u.days}` },
+  ] as const;
+}
 
 /* ------------------------------ 时间工具 ------------------------------ */
 
@@ -128,7 +162,7 @@ function TypingDots({ time, tone }: { time: number; tone: "ink" | "accent" }) {
 }
 
 /** 顶部进度轨：三幕的骨架，始终可见，让「现在讲到哪一步」一眼可读。 */
-function Rail({ time }: { time: number }) {
+function Rail({ time, d }: SceneProps) {
   const active = time < SCENE.bottomline ? 0 : time < SCENE.handoff ? 1 : 2;
   const links = [
     seg(time, SCENE.bottomline - 0.6, SCENE.bottomline + 0.5),
@@ -158,7 +192,7 @@ function Rail({ time }: { time: number }) {
               {index < active ? <Check className="size-4" /> : item.step}
             </span>
             <span className={cn("text-[22px] font-semibold", index === active ? "text-[var(--ink)]" : "text-[var(--muted)]")}>
-              {item.label}
+              {d.rail[item.key]}
             </span>
           </span>
         </React.Fragment>
@@ -167,18 +201,18 @@ function Rail({ time }: { time: number }) {
   );
 }
 
-/** 供应商头像：方牌 + 一个字，和产品里的会话列表同一形制。 */
-function SupplierAvatar() {
+/** 供应商头像：方牌 + 一个字（英文用首字母），和产品里的会话列表同一形制。 */
+function SupplierAvatar({ d }: { d: FilmDict }) {
   return (
     <span className="grid size-11 shrink-0 place-items-center rounded-[12px] bg-[var(--paper-deep)] text-[19px] font-bold text-[var(--ink-soft)]">
-      供
+      {d.supplier.avatar}
     </span>
   );
 }
 
 /* ------------------------------ 第一幕：自动接待 ------------------------------ */
 
-function ReceptionScene({ time }: { time: number }) {
+function ReceptionScene({ time, d }: SceneProps) {
   const greeting = seg(time, 0.35, 0.85);
   const quote = seg(time, 1.15, 1.65);
   const typing = time >= 1.95 && time < 2.4;
@@ -187,33 +221,33 @@ function ReceptionScene({ time }: { time: number }) {
   return (
     <div className="flex h-full flex-col px-12 py-8">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-[30px] font-bold tracking-tight">AI 正在自动接待</h3>
-        <span className="text-[22px] text-[var(--muted)]">供应商不必等你在线</span>
+        <h3 className="text-[30px] font-bold tracking-tight">{d.reception.title}</h3>
+        <span className="text-[22px] text-[var(--muted)]">{d.reception.subtitle}</span>
       </div>
 
       <div className="mt-7 flex flex-1 flex-col gap-5">
         <div className="flex items-start gap-4" style={enter(greeting)}>
-          <SupplierAvatar />
+          <SupplierAvatar d={d} />
           <div className="max-w-[760px] rounded-[18px] rounded-tl-[6px] border border-[var(--line)] bg-[var(--surface)] px-6 py-5">
-            <p className="text-[28px] leading-[1.5]">你好，我们是{SUPPLIER.name}，想给这款收纳盒报个价。</p>
+            <p className="text-[28px] leading-[1.5]">{format(d.reception.greeting, { name: d.supplier.name })}</p>
           </div>
         </div>
 
         {/* 条款结构化：报价不再只是聊天里的一句话，而是一组可校验的字段 */}
         <div className="ml-[60px] rounded-[18px] border border-[var(--line)] bg-[var(--paper)] p-6" style={enter(quote)}>
           <div className="mb-5 flex items-center justify-between">
-            <span className="text-[20px] font-semibold text-[var(--muted)]">供应商提交的条款</span>
+            <span className="text-[20px] font-semibold text-[var(--muted)]">{d.reception.termsTitle}</span>
             <span className="rounded-full bg-[var(--paper-deep)] px-4 py-1.5 text-[19px] font-semibold text-[var(--ink-soft)]">
-              待程序校验
+              {d.reception.termsPending}
             </span>
           </div>
           <div className="grid grid-cols-4 gap-4">
             {QUOTE.map((item) => (
-              <div key={item.label}>
-                <div className="text-[20px] text-[var(--muted)]">{item.label}</div>
+              <div key={item.key}>
+                <div className="text-[20px] text-[var(--muted)]">{d.terms[item.key]}</div>
                 <div className="tnum mt-2 text-[36px] font-bold leading-none">
                   {item.value}
-                  <span className="ml-1 text-[20px] font-normal text-[var(--muted)]">{item.unit}</span>
+                  <span className="ml-1 text-[20px] font-normal text-[var(--muted)]">{d.units[item.unit]}</span>
                 </div>
               </div>
             ))}
@@ -233,7 +267,7 @@ function ReceptionScene({ time }: { time: number }) {
                 style={{ ...enter(reply), background: "var(--surface-inverse)" }}
               >
                 <p className="text-[28px] leading-[1.5]">
-                  收到。我先按贵司的采购底线逐项核对报价、起订量、交期、账期与资质。
+                  {d.reception.reply}
                 </p>
               </div>
             )}
@@ -249,29 +283,30 @@ function ReceptionScene({ time }: { time: number }) {
 
 /* ------------------------------ 第二幕：底线校验 ------------------------------ */
 
-function BottomLineScene({ time }: { time: number }) {
+function BottomLineScene({ time, d }: SceneProps) {
   const head = seg(time, 2.9, 3.25);
   const summary = seg(time, 6.05, 6.4);
+  const lines = bottomLines(d);
 
   return (
     <div className="flex h-full flex-col px-12 py-7">
       <div className="flex items-baseline justify-between" style={enter(head)}>
         <h3 className="flex items-center gap-3 text-[30px] font-bold tracking-tight">
           <ShieldCheck className="size-7 text-[var(--accent)]" />
-          采购底线逐项硬性核对
+          {d.bottomline.title}
         </h3>
-        <span className="text-[22px] text-[var(--muted)]">程序判定，不靠模型自觉</span>
+        <span className="text-[22px] text-[var(--muted)]">{d.bottomline.subtitle}</span>
       </div>
 
       <div className="mt-5 flex flex-1 flex-col justify-center gap-2">
-        {BOTTOM_LINES.map((line, index) => {
+        {lines.map((line, index) => {
           const rowIn = seg(time, 3.05 + index * 0.1, 3.35 + index * 0.1);
           const tickAt = 3.35 + index * 0.44;
           const tick = seg(time, tickAt, tickAt + 0.3);
           const passed = tick > 0;
           return (
             <div
-              key={line.label}
+              key={line.key}
               className="flex items-center gap-5 rounded-[16px] border px-6 py-3"
               style={{
                 ...enter(rowIn),
@@ -290,7 +325,7 @@ function BottomLineScene({ time }: { time: number }) {
                 {passed ? <Check className="size-6" /> : <span className="text-[19px] font-bold">{index + 1}</span>}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[26px] font-bold leading-tight">{line.label}</span>
+                <span className="block text-[26px] font-bold leading-tight">{d.terms[line.key]}</span>
                 <span className="mt-1 block text-[19px] leading-tight text-[var(--muted)]">{line.rule}</span>
               </span>
               <span
@@ -309,7 +344,7 @@ function BottomLineScene({ time }: { time: number }) {
         style={enter(summary, 8)}
       >
         <CircleCheck className="size-6" />
-        5 项全部通过 · 未触碰采购底线，进入加权评分
+        {format(d.bottomline.summary, { count: lines.length })}
       </div>
     </div>
   );
@@ -317,7 +352,7 @@ function BottomLineScene({ time }: { time: number }) {
 
 /* ------------------------------ 第三幕：首次评分 62，未达阈值 ------------------------------ */
 
-function ScoringScene({ time }: { time: number }) {
+function ScoringScene({ time, d }: SceneProps) {
   const head = seg(time, 6.75, 7.1);
   const chip = seg(time, 9.3, 9.65);
 
@@ -331,14 +366,14 @@ function ScoringScene({ time }: { time: number }) {
       <div className="flex items-baseline justify-between" style={enter(head)}>
         <h3 className="flex items-center gap-3 text-[30px] font-bold tracking-tight">
           <Handshake className="size-7 text-[var(--accent)]" />
-          首次加权评分
+          {d.scoring.title}
         </h3>
-        <span className="text-[22px] text-[var(--muted)]">七维权重由商家自定义</span>
+        <span className="text-[22px] text-[var(--muted)]">{d.scoring.subtitle}</span>
       </div>
 
       <div className="mt-6 flex flex-1 gap-10">
         <div className="flex w-[300px] shrink-0 flex-col justify-center">
-          <div className="text-[20px] text-[var(--muted)]">供应商综合评分</div>
+          <div className="text-[20px] text-[var(--muted)]">{d.scoring.supplierScore}</div>
           <div className="mt-2 flex items-end gap-3">
             <span className="tnum text-[132px] font-bold leading-[.9] tracking-tight">{total}</span>
             <span className="pb-3 text-[24px] text-[var(--muted)]">/ 100</span>
@@ -347,14 +382,14 @@ function ScoringScene({ time }: { time: number }) {
             <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--paper-deep)]">
               <span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${total}%` }} />
             </span>
-            <span className="tnum text-[20px] text-[var(--muted)]">阈值 {THRESHOLD}</span>
+            <span className="tnum text-[20px] text-[var(--muted)]">{format(d.scoring.threshold, { value: THRESHOLD })}</span>
           </div>
           <div
             className="mt-6 inline-flex w-fit items-center gap-2 rounded-full bg-[var(--warning-faint)] px-4 py-2 text-[22px] font-semibold text-[var(--warning)]"
             style={enter(chip, 6)}
           >
             <TriangleAlert className="size-5" />
-            未达阈值 · AI 继续议价
+            {d.scoring.belowThreshold}
           </div>
         </div>
 
@@ -364,8 +399,8 @@ function ScoringScene({ time }: { time: number }) {
             const fill = seg(time, start, start + 0.46);
             const rowIn = seg(time, start - 0.3, start + 0.05);
             return (
-              <div key={item.label} className="flex items-center gap-5" style={enter(rowIn, 6)}>
-                <span className="w-[150px] shrink-0 text-[24px]">{item.label}</span>
+              <div key={item.key} className="flex items-center gap-5" style={enter(rowIn, 6)}>
+                <span className="w-[150px] shrink-0 text-[24px]">{d.dimensions[item.key]}</span>
                 <span className="h-[14px] flex-1 overflow-hidden rounded-full bg-[var(--paper-deep)]">
                   <span
                     className="block h-full rounded-full bg-[var(--paper-deep)]"
@@ -394,7 +429,7 @@ function ScoringScene({ time }: { time: number }) {
 
       <div className="mt-4 flex items-center gap-3 rounded-[16px] bg-[var(--warning-faint)] px-6 py-4 text-[24px] font-semibold text-[var(--warning)]" style={enter(seg(time, 9.5, 9.85), 8)}>
         <TriangleAlert className="size-6" />
-        {total} 分 &lt; 转人工阈值 {THRESHOLD} · 不打扰商家，AI 继续谈
+        {format(d.scoring.summary, { score: total, threshold: THRESHOLD })}
       </div>
     </div>
   );
@@ -402,7 +437,7 @@ function ScoringScene({ time }: { time: number }) {
 
 /* ------------------------------ 第四幕：供应商让步，重新校验 62 → 86 ------------------------------ */
 
-function RecheckScene({ time }: { time: number }) {
+function RecheckScene({ time, d }: SceneProps) {
   const ask = seg(time, 10.15, 10.55);
   const reply = seg(time, 10.9, 11.3);
   const panel = seg(time, 11.5, 11.85);
@@ -410,12 +445,13 @@ function RecheckScene({ time }: { time: number }) {
   const system = seg(time, 12.55, 12.9);
 
   const total = Math.round(SCORE_LOW + (SCORE_HIGH - SCORE_LOW) * swap);
+  const changed = deltas(d);
 
   return (
     <div className="flex h-full flex-col px-12 py-8">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-[30px] font-bold tracking-tight">AI 议价 → 程序重新校验</h3>
-        <span className="text-[22px] text-[var(--muted)]">条款一变，评分立刻重算</span>
+        <h3 className="text-[30px] font-bold tracking-tight">{d.recheck.title}</h3>
+        <span className="text-[22px] text-[var(--muted)]">{d.recheck.subtitle}</span>
       </div>
 
       <div className="mt-6 flex flex-col gap-4">
@@ -425,7 +461,12 @@ function RecheckScene({ time }: { time: number }) {
             style={{ background: "var(--surface-inverse)" }}
           >
             <p className="text-[27px] leading-[1.5]">
-              当前 {SCORE_LOW} 分，未达贵司设定的转人工线 {THRESHOLD} 分。若起订量降到 500 件、账期延到 45 天，可以继续。
+              {format(d.recheck.ask, {
+                score: SCORE_LOW,
+                threshold: THRESHOLD,
+                moq: CONCEDED.moq,
+                days: CONCEDED.payment,
+              })}
             </p>
           </div>
           <span className="grid size-11 shrink-0 place-items-center rounded-[12px] bg-[var(--accent)] text-white">
@@ -434,18 +475,20 @@ function RecheckScene({ time }: { time: number }) {
         </div>
 
         <div className="flex items-start gap-4" style={enter(reply)}>
-          <SupplierAvatar />
+          <SupplierAvatar d={d} />
           <div className="max-w-[820px] rounded-[18px] rounded-tl-[6px] border border-[var(--line)] bg-[var(--surface)] px-6 py-5">
-            <p className="text-[27px] leading-[1.5]">起订量 500 件、账期 45 天都可以，价格再让到 ¥41.80。</p>
+            <p className="text-[27px] leading-[1.5]">
+              {format(d.recheck.reply, { moq: CONCEDED.moq, days: CONCEDED.payment, price: CONCEDED.price })}
+            </p>
           </div>
         </div>
       </div>
 
       {/* 变化的三个字段直接摊开：这是「规则写在明面上」最有说服力的一屏 */}
       <div className="mt-5 grid grid-cols-3 gap-4" style={enter(panel, 8)}>
-        {DELTAS.map((delta) => (
-          <div key={delta.label} className="rounded-[16px] border border-[var(--line)] bg-[var(--paper)] px-5 py-4">
-            <div className="text-[19px] text-[var(--muted)]">{delta.label}</div>
+        {changed.map((delta) => (
+          <div key={delta.key} className="rounded-[16px] border border-[var(--line)] bg-[var(--paper)] px-5 py-4">
+            <div className="text-[19px] text-[var(--muted)]">{d.terms[delta.key]}</div>
             <div className="tnum mt-2 flex items-center gap-2 text-[26px] font-semibold">
               <span className="text-[var(--muted)] line-through decoration-[var(--muted)]/50">{delta.from}</span>
               <span className="text-[var(--accent-strong)]">→</span>
@@ -462,7 +505,7 @@ function RecheckScene({ time }: { time: number }) {
           background: "var(--success-faint)",
         }}
       >
-        <span className="text-[22px] font-semibold text-[var(--muted)]">重新校验评分</span>
+        <span className="text-[22px] font-semibold text-[var(--muted)]">{d.recheck.scoreLabel}</span>
         <span className="tnum flex items-end gap-3">
           <span className="text-[42px] font-bold text-[var(--muted)]">{SCORE_LOW}</span>
           <span className="pb-1.5 text-[30px] text-[var(--muted)]">→</span>
@@ -470,13 +513,18 @@ function RecheckScene({ time }: { time: number }) {
         </span>
         <span className="ml-auto flex items-center gap-2 rounded-full bg-[var(--success)] px-5 py-2.5 text-[22px] font-semibold text-white">
           <BadgeCheck className="size-5" />
-          达标 · 优质候选
+          {d.recheck.qualified}
         </span>
       </div>
 
       <div className="mt-3 flex items-center gap-3 text-[22px] text-[var(--muted)]" style={enter(system, 6)}>
         <CircleCheck className="size-5 text-[var(--success)]" />
-        系统消息：重新校验评分 {SCORE_LOW} → {SCORE_HIGH}，分类「AI 拉锯」→「优质候选」
+        {format(d.recheck.system, {
+          from: SCORE_LOW,
+          to: SCORE_HIGH,
+          fromLabel: d.recheck.classification.negotiating,
+          toLabel: d.recheck.classification.qualified,
+        })}
       </div>
     </div>
   );
@@ -484,7 +532,7 @@ function RecheckScene({ time }: { time: number }) {
 
 /* ------------------------------ 第五幕：分层转人工 ------------------------------ */
 
-function HandoffScene({ time }: { time: number }) {
+function HandoffScene({ time, d }: SceneProps) {
   const banner = seg(time, 13.35, 13.8);
   const stop = seg(time, 13.8, 14.2);
   const alert = seg(time, 14.25, 14.65);
@@ -506,10 +554,10 @@ function HandoffScene({ time }: { time: number }) {
         </span>
         <span className="flex-1">
           <span className="tnum block text-[34px] font-bold leading-tight text-[var(--success)]">
-            {SCORE_HIGH} 分 ≥ 阈值 {THRESHOLD} · 判定为优质候选
+            {format(d.handoff.headline, { score: SCORE_HIGH, threshold: THRESHOLD })}
           </span>
           <span className="mt-1.5 block text-[22px] text-[var(--muted)]">
-            评分由程序算出，AI 不参与决策，只负责把结论讲清楚
+            {d.handoff.principle}
           </span>
         </span>
       </div>
@@ -520,7 +568,9 @@ function HandoffScene({ time }: { time: number }) {
             <Bot className="size-6" />
           </span>
           <span className="text-[27px]">
-            已<span className="font-bold">停止 AI 自动回复</span>，不再替商家继续许诺
+            {d.handoff.stopped.lead}
+            <span className="font-bold">{d.handoff.stopped.strong}</span>
+            {d.handoff.stopped.tail}
           </span>
         </div>
 
@@ -535,7 +585,9 @@ function HandoffScene({ time }: { time: number }) {
             </span>
           </span>
           <span className="text-[27px]">
-            已<span className="font-bold">提醒商家接管</span>，高质量候选不再排队等 AI
+            {d.handoff.alerted.lead}
+            <span className="font-bold">{d.handoff.alerted.strong}</span>
+            {d.handoff.alerted.tail}
           </span>
         </div>
 
@@ -543,18 +595,24 @@ function HandoffScene({ time }: { time: number }) {
           className="mt-auto flex items-center gap-5 rounded-[18px] border border-[var(--line)] bg-[var(--paper)] px-6 py-5"
           style={enter(card, 8)}
         >
-          <SupplierAvatar />
+          <SupplierAvatar d={d} />
           <span className="min-w-0 flex-1">
             <span className="block text-[26px] font-bold">
-              {SUPPLIER.name} · {SUPPLIER.contact}
+              {d.supplier.name} · {d.supplier.contact}
             </span>
             <span className="mt-1 block text-[20px] text-[var(--muted)]">
-              最新报价 ¥41.80 / 件 · 起订量 500 件 · 账期 45 天 · 评分轨迹 {SCORE_LOW} → {SCORE_HIGH}
+              {format(d.handoff.card, {
+                price: CONCEDED.price,
+                moq: CONCEDED.moq,
+                days: CONCEDED.payment,
+                from: SCORE_LOW,
+                to: SCORE_HIGH,
+              })}
             </span>
           </span>
           <span className="flex shrink-0 items-center gap-2 rounded-full bg-[var(--accent)] px-5 py-2.5 text-[21px] font-semibold text-white">
             <FileBadge2 className="size-5" />
-            待人工接管
+            {d.handoff.pending}
           </span>
         </div>
       </div>
@@ -564,8 +622,26 @@ function HandoffScene({ time }: { time: number }) {
 
 /* ------------------------------ 主组件 ------------------------------ */
 
-export function NegotiationDemo({ time, className }: { time: number; className?: string }) {
+/**
+ * 影片主组件。
+ *
+ * 语言是 props 显式传进来的：**不在组件内部读 useI18n() / cookie / matchMedia**，
+ * 因为影片的每一帧必须是 (time, locale) 的纯函数——录制脚本逐帧定格截图，
+ * 一旦有第二个输入源（cookie、随机数、当前时间），同一时刻就可能录出两种画面。
+ * 默认 "zh"，与录制舞台 /demo-stage 的首帧初值一致。
+ */
+export function NegotiationDemo({
+  time,
+  locale = "zh",
+  className,
+}: {
+  time: number;
+  locale?: Locale;
+  className?: string;
+}) {
   const t = Math.max(0, Math.min(DEMO_SECONDS, time));
+  const dict = getDictionary(locale);
+  const d = dict.film;
 
   // 幕间位移：0 → 4，每段 0.45s，与场景内部的入场动画并行推进
   const stage =
@@ -593,10 +669,12 @@ export function NegotiationDemo({ time, className }: { time: number; className?:
         <div className="flex items-center gap-4 border-b border-[var(--line)] px-12 py-5">
           <FilmBrandMark />
           <span className="text-[26px] font-bold tracking-tight">
-            链谈 <span className="text-[var(--accent)]">Agent</span>
+            {dict.common.brand.name} <span className="text-[var(--accent)]">{dict.common.brand.suffix}</span>
           </span>
           <span className="h-6 w-px bg-[var(--line)]" />
-          <span className="text-[23px] text-[var(--muted)]">采购谈判台 · {SUPPLIER.name}</span>
+          <span className="text-[23px] text-[var(--muted)]">
+            {format(d.chrome.desk, { supplier: d.supplier.name })}
+          </span>
 
           <span className="ml-auto flex items-center gap-3">
             <span
@@ -611,12 +689,12 @@ export function NegotiationDemo({ time, className }: { time: number; className?:
                 className="size-2.5 rounded-full"
                 style={{ background: live ? "var(--accent)" : "var(--muted)", opacity: live ? pulse : 1 }}
               />
-              {live ? "AI 自动接待中" : "已转人工 · 待接管"}
+              {live ? d.chrome.live : d.chrome.handedOff}
             </span>
           </span>
         </div>
 
-        <Rail time={t} />
+        <Rail time={t} d={d} />
 
         {/* 舞台：五幕纵向串成一条带子，按时间平移。用位移而不是交叉淡出，
             避免两幕内容叠在一起互相糊住。 */}
@@ -624,11 +702,11 @@ export function NegotiationDemo({ time, className }: { time: number; className?:
           <div className="absolute inset-x-0 top-0" style={{ height: "500%", transform: `translateY(-${(stage * 100) / 5}%)` }}>
             {/* 每一幕都 overflow-hidden：内容一旦比幕高更高，宁可裁掉也不能溢到相邻幕上，
                 否则平移过程中会出现「上一幕的结论条压在下一幕标题上」这种穿帮。 */}
-            <div className="h-1/5 overflow-hidden"><ReceptionScene time={t} /></div>
-            <div className="h-1/5 overflow-hidden"><BottomLineScene time={t} /></div>
-            <div className="h-1/5 overflow-hidden"><ScoringScene time={t} /></div>
-            <div className="h-1/5 overflow-hidden"><RecheckScene time={t} /></div>
-            <div className="h-1/5 overflow-hidden"><HandoffScene time={t} /></div>
+            <div className="h-1/5 overflow-hidden"><ReceptionScene time={t} d={d} /></div>
+            <div className="h-1/5 overflow-hidden"><BottomLineScene time={t} d={d} /></div>
+            <div className="h-1/5 overflow-hidden"><ScoringScene time={t} d={d} /></div>
+            <div className="h-1/5 overflow-hidden"><RecheckScene time={t} d={d} /></div>
+            <div className="h-1/5 overflow-hidden"><HandoffScene time={t} d={d} /></div>
           </div>
         </div>
       </div>

@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "film": "node scripts/build-demo-video.mjs",
-    "film:preview": "node scripts/build-demo-video.mjs --preview"
+    "film:preview": "node scripts/build-demo-video.mjs --preview",
+    "film:en": "node scripts/build-demo-video.mjs --locale en",
+    "film:preview:en": "node scripts/build-demo-video.mjs --locale en --preview"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

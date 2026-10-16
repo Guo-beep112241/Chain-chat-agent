@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { merchantRegister, setMerchantAuth } from "@/lib/api";
+import { useI18n } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
 const DRAFT_KEY = "liantan_register_draft";
@@ -46,16 +47,19 @@ function clearDraft() {
   try { window.sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 }
 
-function passwordChecks(pw: string) {
+function passwordChecks(pw: string, labels: { length: string; letter: string; digit: string }) {
   return [
-    { ok: pw.length > 8, label: "长度大于 8 位" },
-    { ok: /[a-zA-Z]/.test(pw), label: "包含英文字母" },
-    { ok: /[0-9]/.test(pw), label: "包含数字" },
+    { ok: pw.length > 8, label: labels.length },
+    { ok: /[a-zA-Z]/.test(pw), label: labels.letter },
+    { ok: /[0-9]/.test(pw), label: labels.digit },
   ];
 }
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { d } = useI18n();
+  const t = d.auth.register;
+  const shared = d.auth.shared;
   const [initial] = useState<Draft>(loadDraft);
   const [account, setAccount] = useState(initial.account);
   const [password, setPassword] = useState("");
@@ -71,20 +75,20 @@ export default function RegisterPage() {
     saveDraft({ account, storeName, phone, email, agree });
   }, [account, storeName, phone, email, agree]);
 
-  const checks = passwordChecks(password);
+  const checks = passwordChecks(password, t.checks);
   const doneCount = checks.filter((c) => c.ok).length;
   const passwordOk = doneCount === 3;
 
   function validate(): string | null {
-    if (!/^[A-Za-z0-9_]{3,80}$/.test(account.trim())) return "账号需 3-80 位，仅限字母、数字、下划线";
-    if (password.length <= 8) return "密码长度需大于 8 个字符";
-    if (!/[a-zA-Z]/.test(password)) return "密码需至少包含一个英文字母";
-    if (!/[0-9]/.test(password)) return "密码需至少包含一个数字";
-    if (password !== confirm) return "两次输入的密码不一致";
-    if (!storeName.trim()) return "请填写商家名称";
-    if (!/^\d{11}$/.test(phone.trim())) return "请输入 11 位手机号";
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) return "请输入正确的邮箱地址";
-    if (!agree) return "请先阅读并勾选同意平台须知";
+    if (!/^[A-Za-z0-9_]{3,80}$/.test(account.trim())) return t.validation.account;
+    if (password.length <= 8) return t.validation.passwordLength;
+    if (!/[a-zA-Z]/.test(password)) return t.validation.passwordLetter;
+    if (!/[0-9]/.test(password)) return t.validation.passwordDigit;
+    if (password !== confirm) return t.validation.passwordMismatch;
+    if (!storeName.trim()) return t.validation.storeName;
+    if (!/^\d{11}$/.test(phone.trim())) return t.validation.phone;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) return t.validation.email;
+    if (!agree) return t.validation.agree;
     return null;
   }
 
@@ -105,7 +109,7 @@ export default function RegisterPage() {
       setMerchantAuth(res.access_token);
       clearDraft();
       router.replace("/dashboard");
-    } catch (err) { setError(err instanceof Error ? err.message : "注册失败"); }
+    } catch (err) { setError(err instanceof Error ? err.message : t.failed); }
     finally { setSubmitting(false); }
   }
 
@@ -113,12 +117,12 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout
-      asideTitle="先把底线写下来，再让 AI 去谈"
-      asideBody="注册后即可为每个商品配置目标价、硬性上限、起订量、交期与账期，并自定义七维评分权重。规则怎么定，AI 就怎么谈。"
+      asideTitle={t.asideTitle}
+      asideBody={t.asideBody}
     >
       <div className="p-7 sm:p-8">
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight">注册商家账号</h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">注册成功后自动登录，直接进入采购工作台。</p>
+        <h1 className="text-[28px] font-bold leading-tight tracking-tight">{t.title}</h1>
+        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{t.subtitle}</p>
 
         {error && (
           <div
@@ -132,14 +136,14 @@ export default function RegisterPage() {
 
         <form onSubmit={submit} className="mt-5 space-y-4">
           <label className="block">
-            <span className="text-xs font-semibold">登录账号</span>
+            <span className="text-xs font-semibold">{t.accountLabel}</span>
             <div className="relative mt-2">
               <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
               <Input
                 className="pl-9"
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
-                placeholder="3-80 位字母、数字或下划线"
+                placeholder={t.accountPlaceholder}
                 autoComplete="username"
                 autoFocus
                 // 与登录页一致：手机键盘的自动大写会把 admin 变成 Admin，
@@ -154,13 +158,13 @@ export default function RegisterPage() {
 
           <div>
             <label className="block">
-              <span className="text-xs font-semibold">密码</span>
+              <span className="text-xs font-semibold">{t.passwordLabel}</span>
               <div className="mt-2">
                 <PasswordInput
                   leadingIcon={<KeyRound className="size-4" />}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="大于 8 位，且同时包含字母和数字"
+                  placeholder={t.passwordPlaceholder}
                   autoComplete="new-password"
                   aria-describedby="register-password-rules"
                 />
@@ -190,13 +194,13 @@ export default function RegisterPage() {
           </div>
 
           <label className="block">
-            <span className="text-xs font-semibold">确认密码</span>
+            <span className="text-xs font-semibold">{t.confirmLabel}</span>
             <div className="mt-2">
               <PasswordInput
                 leadingIcon={<KeyRound className="size-4" />}
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                placeholder="再次输入密码"
+                placeholder={t.confirmPlaceholder}
                 autoComplete="new-password"
                 aria-describedby={errorId}
               />
@@ -204,26 +208,26 @@ export default function RegisterPage() {
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold">商家名称</span>
+            <span className="text-xs font-semibold">{t.storeNameLabel}</span>
             <div className="relative mt-2">
               <Store className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-              <Input className="pl-9" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="例如：小鹿生活馆" aria-describedby={errorId} />
+              <Input className="pl-9" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder={t.storeNamePlaceholder} aria-describedby={errorId} />
             </div>
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold">绑定手机号</span>
+            <span className="text-xs font-semibold">{t.phoneLabel}</span>
             <div className="relative mt-2">
               <Smartphone className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-              <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="11 位手机号" inputMode="numeric" maxLength={11} autoComplete="tel" aria-describedby={errorId} />
+              <Input className="pl-9" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={t.phonePlaceholder} inputMode="numeric" maxLength={11} autoComplete="tel" aria-describedby={errorId} />
             </div>
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold">绑定邮箱</span>
+            <span className="text-xs font-semibold">{t.emailLabel}</span>
             <div className="relative mt-2">
               <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
-              <Input className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" type="email" autoComplete="email" aria-describedby={errorId} />
+              <Input className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t.emailPlaceholder} type="email" autoComplete="email" aria-describedby={errorId} />
             </div>
           </label>
 
@@ -238,22 +242,22 @@ export default function RegisterPage() {
               className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
             />
             <div className="text-xs leading-5 text-[var(--muted)]">
-              <label htmlFor="agree-terms" className="cursor-pointer">我已阅读并同意</label>
-              <Link href="/terms" className="mx-1 font-semibold text-[var(--accent-strong)] underline underline-offset-2">《平台须知》</Link>
-              ，知晓平台数据使用与演示说明。
+              <label htmlFor="agree-terms" className="cursor-pointer">{t.agreeLead}</label>
+              <Link href="/terms" className="mx-1 font-semibold text-[var(--accent-strong)] underline underline-offset-2">{shared.termsLink}</Link>
+              {t.agreeTail}
             </div>
           </div>
 
           <Button type="submit" variant="accent" size="lg" className="w-full" disabled={submitting} aria-busy={submitting}>
             {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-            {submitting ? "正在创建账号…" : "注册并进入工作台"}
+            {submitting ? t.submitting : t.submit}
           </Button>
         </form>
 
         <p className="mt-5 text-center text-xs text-[var(--muted)]">
-          已有账号？{" "}
+          {t.haveAccount}{" "}
           <Link href="/login" className="font-semibold text-[var(--accent-strong)] underline underline-offset-2 hover:text-[var(--accent)]">
-            返回登录
+            {t.loginLink}
           </Link>
         </p>
       </div>
