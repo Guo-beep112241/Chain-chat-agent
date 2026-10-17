@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import secrets
@@ -11,7 +12,7 @@ import httpx
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from sqlalchemy import func, inspect, select
+from sqlalchemy import delete, func, inspect, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -21,11 +22,12 @@ from app.ratelimit import clear_failures, client_ip, enforce, guard, record_fail
 from app.startup_checks import validate_settings
 from app.uploads import ALLOWED_TYPES, MAX_UPLOAD_BYTES, detect_file_type, normalize_suffix, read_limited, sanitize_filename
 from app.database import Base, SessionLocal, engine, get_db
-from app.models import MerchantAccount, Message, Negotiation, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
-from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantTokenOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
+from app.models import MerchantAccount, Message, Negotiation, PasswordResetChallenge, ProcurementRule, Product, QualificationFile, Supplier, SupplierAuth
+from app.schemas import ChatIn, ChatOut, DashboardItem, DashboardSummary, DialogueEvaluationIn, EvaluationOut, MerchantCodeLoginIn, MerchantCodeOut, MerchantCodeRequest, MerchantForgotPasswordIn, MerchantForgotPasswordOut, MerchantPasswordIn, MerchantPasswordLoginIn, MerchantProfileIn, MerchantProfileOut, MerchantRegisterIn, MerchantResetPasswordIn, MerchantTokenOut, MerchantVerifyResetCodeIn, MerchantVerifyResetCodeOut, MLPredictIn, MLPredictOut, NegotiationOut, ProductCreate, ProductManageOut, ProductOut, ProductUpdate, QualificationFileOut, RuleOut, RuleUpdate, SupplierCodeOut, SupplierCodeRequest, SupplierLoginRequest, SupplierOfferIn, SupplierTokenOut
 from app.seed import seed_demo_data, seed_merchant_account
 from app.security import authorize_negotiation, check_code, hash_password, issue_code, issue_token, require_buyer, require_merchant, require_supplier, validate_password, verify_password
 from app.services.llm import SERVICE_UNAVAILABLE_NOTICE, NegotiationTurn, generate_boundary_recovery_reply, generate_negotiation_reply, generate_negotiation_turn, generate_opening_message
+from app.services.mailer import MailDeliveryError, MailNotConfigured, reset_page_url, send_password_reset_code
 from app.services.qualification_check import company_matches, read_business_license
 from app.services.rules import enforce_hard_rules
 from app.services.scoring import DEFAULT_SCORE_WEIGHTS, ScoreResult, calculate_supplier_score, classify_supplier
@@ -166,6 +168,14 @@ async def database_error_handler(request: Request, exc: SQLAlchemyError) -> JSON
 def _mask_phone(phone: str) -> str:
     """日志里不出现完整手机号。"""
     return f"{phone[:3]}****{phone[-4:]}" if len(phone) >= 7 else "***"
+
+
+def _mask_email(email: str) -> str:
+    """日志里不出现完整邮箱。"""
+    local, _, domain = email.partition("@")
+    if not local or not domain:
+        return "***"
+    return f"{local[0]}***@{domain}"
 
 
 def get_negotiation_or_404(db: Session, negotiation_id: int) -> Negotiation:
@@ -383,6 +393,11 @@ def get_merchant_by_phone(db: Session, phone: str) -> MerchantAccount | None:
     return db.scalar(select(MerchantAccount).where(MerchantAccount.phone == phone))
 
 
+def get_merchant_by_email(db: Session, email: str) -> MerchantAccount | None:
+    """邮箱按忽略大小写匹配，与注册时的唯一性口径一致。"""
+    return db.scalar(select(MerchantAccount).where(func.lower(MerchantAccount.email) == email.lower()))
+
+
 @app.post("/api/auth/merchant/register", response_model=MerchantTokenOut, status_code=201)
 def merchant_register(payload: MerchantRegisterIn, request: Request, db: Session = Depends(get_db)):
     """注册新商家（注册即登录）：账号/手机号/邮箱全局唯一，密码复用原规则，须知必须勾选。
@@ -549,6 +564,149 @@ def merchant_change_password(payload: MerchantPasswordIn, account: MerchantAccou
     account.access_token = issue_token()
     db.commit()
     return {"ok": True, "access_token": account.access_token}
+
+
+@app.post("/api/auth/merchant/forgot-password", response_model=MerchantForgotPasswordOut)
+def request_merchant_password_reset(payload: MerchantForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
+    """发送找回密码验证码。
+
+    安全口径：无论邮箱是否存在，成功响应完全一致，避免被拿来枚举商家账号。
+    验证码只通过邮件发送，不写日志、不回显；SMTP 未配置时明确 503。
+    """
+    email = payload.email
+    if not settings.smtp_host or not (settings.smtp_from or settings.smtp_username):
+        raise HTTPException(status_code=503, detail="邮件服务未配置，暂时无法找回密码")
+    enforce(request, scope="forgot:ip", key=client_ip(request), limit=6, window_seconds=3600, message="请求过于频繁，请稍后再试")
+    enforce(request, scope="forgot:email", key=email, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
+
+    ttl_minutes = max(1, settings.password_reset_code_ttl_minutes)
+    expires_in = ttl_minutes * 60
+    account = get_merchant_by_email(db, email)
+    if account is None:
+        # 不存在的邮箱也返回成功；耗时差异不构成可用的账号枚举信号。
+        logger.info("找回密码请求：邮箱未绑定（%s）", _mask_email(email))
+        return MerchantForgotPasswordOut(expires_in=expires_in)
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    now = datetime.utcnow()
+    # 同一商家只保留最新一次挑战：旧邮件里的验证码 / 重置令牌立即失效。
+    db.execute(delete(PasswordResetChallenge).where(PasswordResetChallenge.merchant_id == account.id))
+    challenge = PasswordResetChallenge(
+        merchant_id=account.id,
+        email=email,
+        code_hash=hash_password(code),
+        expires_at=now + timedelta(minutes=ttl_minutes),
+    )
+    db.add(challenge)
+    db.commit()
+    db.refresh(challenge)
+
+    try:
+        send_password_reset_code(
+            to_email=email,
+            code=code,
+            ttl_minutes=ttl_minutes,
+            reset_url=reset_page_url(email),
+        )
+    except (MailNotConfigured, MailDeliveryError) as exc:
+        # 发不出去就不要留一个用户永远收不到的验证码。
+        db.delete(challenge)
+        db.commit()
+        logger.warning("找回密码邮件未能发送（%s）：%s", _mask_email(email), type(exc).__name__)
+        raise HTTPException(status_code=503, detail="邮件服务暂时不可用，请稍后再试") from exc
+
+    logger.info("找回密码验证码已发送（%s）", _mask_email(email))
+    return MerchantForgotPasswordOut(expires_in=expires_in)
+
+
+@app.post("/api/auth/merchant/forgot-password/verify", response_model=MerchantVerifyResetCodeOut)
+def verify_merchant_password_reset_code(payload: MerchantVerifyResetCodeIn, request: Request, db: Session = Depends(get_db)):
+    """校验邮件验证码；通过后签发一次性重置令牌。"""
+    email = payload.email
+    enforce(request, scope="forgot:verify:ip", key=client_ip(request), limit=20, window_seconds=900, message="尝试次数过多，请稍后再试")
+    enforce(request, scope="forgot:verify:email", key=email, limit=10, window_seconds=900, message="尝试次数过多，请稍后再试")
+
+    invalid = HTTPException(status_code=400, detail="验证码错误或已过期，请重新获取")
+    account = get_merchant_by_email(db, email)
+    if account is None:
+        raise invalid
+    challenge = db.scalar(
+        select(PasswordResetChallenge)
+        .where(
+            PasswordResetChallenge.merchant_id == account.id,
+            PasswordResetChallenge.email == email,
+            PasswordResetChallenge.consumed_at.is_(None),
+        )
+        .order_by(PasswordResetChallenge.created_at.desc(), PasswordResetChallenge.id.desc())
+        .limit(1)
+    )
+    now = datetime.utcnow()
+    if challenge is None:
+        raise invalid
+    max_attempts = max(1, settings.password_reset_max_attempts)
+    if challenge.verified_at is not None:
+        # 已经签发过重置令牌：旧验证码不能再次验证，也绝不能把已签发的令牌一起作废。
+        raise invalid
+    if challenge.expires_at <= now or challenge.attempts >= max_attempts:
+        challenge.consumed_at = challenge.consumed_at or now
+        db.commit()
+        raise invalid
+
+    if not verify_password(payload.code, challenge.code_hash):
+        challenge.attempts += 1
+        if challenge.attempts >= max_attempts:
+            challenge.consumed_at = now
+        db.commit()
+        raise invalid
+
+    token = secrets.token_urlsafe(32)
+    token_ttl = max(1, settings.password_reset_token_ttl_minutes)
+    challenge.token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    challenge.verified_at = now
+    # 验证通过后重新计时：用户拿到重置令牌再慢慢设置新密码，不会因为验证码快到期而失败。
+    challenge.expires_at = now + timedelta(minutes=token_ttl)
+    db.commit()
+    return MerchantVerifyResetCodeOut(reset_token=token, expires_in=token_ttl * 60)
+
+
+@app.post("/api/auth/merchant/forgot-password/reset")
+def reset_merchant_password(payload: MerchantResetPasswordIn, request: Request, db: Session = Depends(get_db)):
+    """用一次性令牌设置新密码。
+
+    重置成功后清空 access_token：所有设备上的旧登录态立即失效，用户必须用新密码重新登录。
+    """
+    enforce(request, scope="forgot:reset:ip", key=client_ip(request), limit=10, window_seconds=900, message="尝试次数过多，请稍后再试")
+    if error := validate_password(payload.new_password):
+        raise HTTPException(status_code=422, detail=error)
+
+    token_hash = hashlib.sha256(payload.reset_token.encode("utf-8")).hexdigest()
+    challenge = db.scalar(
+        select(PasswordResetChallenge).where(
+            PasswordResetChallenge.token_hash == token_hash,
+            PasswordResetChallenge.consumed_at.is_(None),
+        )
+    )
+    now = datetime.utcnow()
+    invalid = HTTPException(status_code=400, detail="重置链接已失效，请重新获取验证码")
+    if challenge is None or challenge.verified_at is None or challenge.expires_at <= now:
+        raise invalid
+    account = db.get(MerchantAccount, challenge.merchant_id)
+    if account is None:
+        raise invalid
+
+    account.password_hash = hash_password(payload.new_password)
+    # 关键：不换发新令牌，而是直接吊销。用户完成重置后必须重新走一次登录流程。
+    account.access_token = None
+    challenge.consumed_at = now
+    db.execute(
+        delete(PasswordResetChallenge).where(
+            PasswordResetChallenge.merchant_id == account.id,
+            PasswordResetChallenge.id != challenge.id,
+        )
+    )
+    db.commit()
+    logger.info("商家 %s 已通过邮箱验证重置密码", account.id)
+    return {"ok": True}
 
 
 @app.get("/api/merchant/profile", response_model=MerchantProfileOut)

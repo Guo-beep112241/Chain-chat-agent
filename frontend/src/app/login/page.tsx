@@ -257,6 +257,15 @@ export default function LoginPage() {
           </div>
         )}
 
+        <div className="mt-2 flex justify-end">
+          <Link
+            href="/forgot-password"
+            className="text-xs font-semibold text-[var(--accent-strong)] underline underline-offset-2 transition-colors hover:text-[var(--accent)]"
+          >
+            {t.forgotPassword}
+          </Link>
+        </div>
+
         {error && (
           <div
             id="login-error"

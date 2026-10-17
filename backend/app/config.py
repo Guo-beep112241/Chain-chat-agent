@@ -25,6 +25,21 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     baidu_api_key: str | None = None
     baidu_secret_key: str | None = None
+    # 找回密码邮件（SMTP）。未配置时接口返回 503，不会把验证码回显给前端。
+    # 常见配置：Gmail/企业邮箱 smtp_host=smtp.example.com, smtp_port=587, smtp_starttls=true；
+    # 465 端口的服务用 smtp_ssl=true、smtp_starttls=false。
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    smtp_timeout_seconds: int = 15
+    # 找回密码：验证码/重置令牌有效期与单个验证码的最大尝试次数。
+    password_reset_code_ttl_minutes: int = 10
+    password_reset_token_ttl_minutes: int = 10
+    password_reset_max_attempts: int = 5
     # 供应商重复提交的幂等窗口（秒）。同一供应商对同一商品在窗口内提交
     # 完全相同的条件时复用已有会话，避免双击/网络重试产生重复档案。
     # 设为 0 关闭该行为。

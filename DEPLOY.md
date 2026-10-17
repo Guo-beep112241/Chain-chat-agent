@@ -40,6 +40,9 @@ git push origin main
    | `DEMO_MODE` | `true`=验证码直接回显（无短信服务时必需）；接入短信后改 `false` |
    | `DEEPSEEK_API_KEY` | 可选，留空则用可重复演示回复 |
    | `BAIDU_API_KEY` / `BAIDU_SECRET_KEY` | 可选，留空则资质上传转人工核验 |
+   | `SMTP_HOST` / `SMTP_PORT` | 可选，找回密码邮件服务器；不填则找回密码不可用 |
+   | `SMTP_USERNAME` / `SMTP_PASSWORD` | 可选，SMTP 登录凭证 |
+   | `SMTP_FROM` / `SMTP_SSL` / `SMTP_STARTTLS` | 可选，发件人与加密方式（587 用 STARTTLS，465 用 SSL） |
 
 3. 等部署完成，记下后端网址，形如 `https://liantan-backend.onrender.com`。
 
@@ -85,4 +88,5 @@ git push origin main
   部署成功的判据：打开 `https://<后端域名>/api/health` 能看到 `"version":"0.1.0"`，`/api/health/ready` 返回 JSON 而不是 404。
 - **上传的文件会丢吗？** 不会，已改为存进数据库（本次改动），不再依赖云主机的临时磁盘。
 - **ML 打分模式能用吗？** 默认是 `custom_rule` 规则打分。`ml_models/` 模型文件被 `.gitignore` 忽略、未入库，首次用 ML 模式会在服务器在线训练。
+- **找回密码邮件发不出去？** 检查 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM` 是否都填了。587 端口保持 `SMTP_STARTTLS=true`、`SMTP_SSL=false`；465 端口反过来。企业邮箱/QQ 邮箱通常要填「客户端授权码」而不是登录密码。未配置 SMTP 时接口返回 503 属于预期，账号密码登录不受影响。
 - **为什么第一次打开很慢？** Render 免费实例休眠后的冷启动，等几十秒即可；也可以后续升级成付费（$7/月起）保持常驻。

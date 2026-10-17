@@ -380,6 +380,18 @@ export function merchantCodeLogin(phone: string, code: string) {
 export function merchantRegister(payload: RegisterPayload) {
   return request<MerchantToken>("/api/auth/merchant/register", { method: "POST", body: JSON.stringify(payload) });
 }
+// 找回密码：邮箱验证码 → 一次性重置令牌 → 设置新密码（重置后必须重新登录）。
+export type ForgotPasswordResponse = { ok: boolean; expires_in: number };
+export type ResetTokenResponse = { reset_token: string; expires_in: number };
+export function requestMerchantPasswordReset(email: string) {
+  return request<ForgotPasswordResponse>("/api/auth/merchant/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+}
+export function verifyMerchantResetCode(email: string, code: string) {
+  return request<ResetTokenResponse>("/api/auth/merchant/forgot-password/verify", { method: "POST", body: JSON.stringify({ email, code }) });
+}
+export function resetMerchantPassword(reset_token: string, new_password: string) {
+  return request<{ ok: boolean }>("/api/auth/merchant/forgot-password/reset", { method: "POST", body: JSON.stringify({ reset_token, new_password }) });
+}
 export function merchantLogout() {
   return request<{ ok: boolean }>("/api/auth/merchant/logout", { method: "POST" }, "admin");
 }

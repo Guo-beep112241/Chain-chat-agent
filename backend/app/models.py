@@ -132,6 +132,27 @@ class SupplierAuth(Base):
     last_login_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PasswordResetChallenge(Base):
+    """找回密码挑战：先发邮箱验证码，验证通过后换一次性重置令牌。
+
+    验证码用慢哈希保存，令牌用 SHA-256 保存；两者都不落明文。
+    每次请求先清掉该商家未完成的旧挑战，避免多封邮件里的验证码同时有效。
+    """
+
+    __tablename__ = "password_reset_challenges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchant_accounts.id"), index=True)
+    email: Mapped[str] = mapped_column(String(160), index=True)
+    code_hash: Mapped[str] = mapped_column(String(255))
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class MerchantAccount(Base):
     """采购方（商家）账号：多商家，每个商家一行。账号/手机号/邮箱全局唯一。"""
 

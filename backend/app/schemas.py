@@ -6,6 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.scoring import DEFAULT_SCORE_WEIGHTS, SCORE_WEIGHT_KEYS
 
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def normalize_email(value: str) -> str:
+    """邮箱统一去空格 + 小写；格式不合法时抛出可直接展示的中文错误。"""
+    value = value.strip().lower()
+    if not EMAIL_RE.fullmatch(value):
+        raise ValueError("邮箱格式不正确")
+    return value
+
 
 class ProductOut(BaseModel):
     id: int
@@ -264,6 +274,41 @@ class MerchantCodeOut(BaseModel):
     registered: bool = True
 
 
+class MerchantForgotPasswordIn(BaseModel):
+    email: str = Field(min_length=3, max_length=160)
+
+    @field_validator("email")
+    @classmethod
+    def _check_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+
+class MerchantForgotPasswordOut(BaseModel):
+    # 无论邮箱是否存在都返回同样的成功响应，避免被用来枚举商家账号。
+    ok: bool = True
+    expires_in: int
+
+
+class MerchantVerifyResetCodeIn(BaseModel):
+    email: str = Field(min_length=3, max_length=160)
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+    @field_validator("email")
+    @classmethod
+    def _check_email(cls, value: str) -> str:
+        return normalize_email(value)
+
+
+class MerchantVerifyResetCodeOut(BaseModel):
+    reset_token: str
+    expires_in: int
+
+
+class MerchantResetPasswordIn(BaseModel):
+    reset_token: str = Field(min_length=20, max_length=200)
+    new_password: str = Field(min_length=1, max_length=200)
+
+
 class MerchantRegisterIn(BaseModel):
     account: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_]+$")
     password: str = Field(min_length=1, max_length=200)
@@ -275,10 +320,7 @@ class MerchantRegisterIn(BaseModel):
     @field_validator("email")
     @classmethod
     def _check_email(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
-            raise ValueError("邮箱格式不正确")
-        return value
+        return normalize_email(value)
 
 
 class MerchantPasswordIn(BaseModel):

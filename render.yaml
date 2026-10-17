@@ -34,6 +34,21 @@ services:
         sync: false
       - key: BAIDU_SECRET_KEY
         sync: false
+      # 找回密码邮件（选填：不填则找回密码接口返回 503，账号密码登录不受影响）
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_STARTTLS
+        value: "true"
+      - key: SMTP_SSL
+        value: "false"
       # 商家初始登录密码（必填，公开部署务必改成强密码）
       - key: MERCHANT_PASSWORD
         sync: false
