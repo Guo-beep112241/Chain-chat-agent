@@ -38,6 +38,8 @@ export const auth = defineDict({
       loginFailed: "登录失败",
       demoCodeTitle: "演示验证码",
       demoCodeNotice: "演示验证码已生成：{code}（5 分钟内有效）",
+      demoCodeNewWorkspace:
+        "该手机号还没有商家账号：演示环境会在登录时为它创建一个独立演示工作台（含 3 个演示商品）。",
       codeSent: "验证码已发送，请查看短信",
       termsLink: "《平台须知》",
     },
@@ -158,6 +160,8 @@ export const auth = defineDict({
       loginFailed: "Sign-in failed",
       demoCodeTitle: "Demo code",
       demoCodeNotice: "Demo code generated: {code} (valid for 5 minutes)",
+      demoCodeNewWorkspace:
+        "This number has no merchant account yet — signing in creates a separate demo workspace with 3 sample products.",
       codeSent: "Code sent — check your text messages",
       termsLink: "Platform Notice",
     },

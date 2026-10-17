@@ -26,6 +26,9 @@ export default function LoginPage() {
   const [demoCode, setDemoCode] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [notice, setNotice] = useState("");
+  // 未注册手机号在演示环境也能取码，登录时会自动开一个演示工作台。
+  // 必须提前说明，否则用户会以为「这个手机号没注册，登不进去」。
+  const [newWorkspaceHint, setNewWorkspaceHint] = useState("");
   const [countdown, setCountdown] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -46,6 +49,7 @@ export default function LoginPage() {
     setError("");
     setNotice("");
     setDemoCode("");
+    setNewWorkspaceHint("");
     // 输入框里的验证码必须一起清掉：它跟 demoCode 是同一轮取码的产物，
     // 只清展示块会留下一个「看不见但可以直接提交」的旧验证码。
     // 倒计时保留——它属于手机号而不是当前标签，清了反而会引诱用户连点撞 429。
@@ -60,11 +64,13 @@ export default function LoginPage() {
     setRequesting(true);
     setError("");
     setNotice("");
+    setNewWorkspaceHint("");
     try {
       const res = await requestMerchantCode(phone.trim());
       setDemoCode(res.code ?? "");
       setCode(res.code ?? ""); // 演示模式：验证码自动填入
       setNotice(res.code ? format(shared.demoCodeNotice, { code: res.code }) : shared.codeSent);
+      if (res.registered === false) setNewWorkspaceHint(shared.demoCodeNewWorkspace);
       setCountdown(60);
     } catch (e) {
       setError(e instanceof Error ? e.message : shared.sendCodeFailed);
@@ -243,6 +249,9 @@ export default function LoginPage() {
                 <div className="text-xs font-semibold text-[var(--accent-strong)]">{shared.demoCodeTitle}</div>
                 <div className="tnum mt-1 font-mono text-lg font-bold tracking-[.3em] text-[var(--ink)]">{demoCode}</div>
                 <p className="mt-1 text-[11px] text-[var(--muted)]">{notice}</p>
+                {newWorkspaceHint && (
+                  <p className="mt-1 text-[11px] leading-4 text-[var(--accent-strong)]">{newWorkspaceHint}</p>
+                )}
               </div>
             )}
           </div>

@@ -81,6 +81,8 @@ git push origin main
 
 ## 常见问题
 
+- **前端提示「后端服务可达（版本 未知），但没有 /api/xxx 这个接口」**：后端没有跟着 `main` 更新。去 Render 服务的 **Settings → Build & Deploy → Branch** 确认是 `main`（不是某个版本分支），再点 **Manual Deploy → Deploy latest commit**。只在 GitHub 推 `main` 时，跟踪版本分支的服务不会触发部署，表现就是前端已更新、后端还是旧接口。
+  部署成功的判据：打开 `https://<后端域名>/api/health` 能看到 `"version":"0.1.0"`，`/api/health/ready` 返回 JSON 而不是 404。
 - **上传的文件会丢吗？** 不会，已改为存进数据库（本次改动），不再依赖云主机的临时磁盘。
 - **ML 打分模式能用吗？** 默认是 `custom_rule` 规则打分。`ml_models/` 模型文件被 `.gitignore` 忽略、未入库，首次用 ML 模式会在服务器在线训练。
 - **为什么第一次打开很慢？** Render 免费实例休眠后的冷启动，等几十秒即可；也可以后续升级成付费（$7/月起）保持常驻。

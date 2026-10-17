@@ -5,6 +5,9 @@ services:
   - type: web
     name: liantan-backend
     runtime: python
+    # 部署分支显式钉在 main。线上曾经把服务改成跟踪某个版本分支，之后只提交到 main
+    # 的修复（包括新增的商家端取码接口）永远上不了线，表现为前端「后端还停在旧版本」。
+    branch: main
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT

@@ -425,14 +425,54 @@ def request_merchant_code(payload: MerchantCodeRequest, request: Request, db: Se
     enforce(request, scope="otp:merchant:phone", key=phone, limit=1, window_seconds=60, message="验证码刚发送过，请稍后再试")
     enforce(request, scope="otp:merchant:ip", key=client_ip(request), limit=8, window_seconds=3600, message="请求过于频繁，请稍后再试")
     account = get_merchant_by_phone(db, phone)
-    if account is None:
-        # 文案必须给出下一步动作：早期只写「未绑定」，用户只会反复重试同一个手机号。
-        raise HTTPException(status_code=404, detail="该手机号还没有绑定采购方账号，请先注册商家账号，或改用账号密码登录")
-    code = issue_code(phone)
     if not settings.demo_mode:
+        # 正式环境必须真的把码发出去；未接入短信服务就明确失败，而不是回显验证码。
+        if account is None:
+            # 文案必须给出下一步动作：早期只写「未绑定」，用户只会反复重试同一个手机号。
+            raise HTTPException(status_code=404, detail="该手机号还没有绑定采购方账号，请先注册商家账号，或改用账号密码登录")
         raise HTTPException(status_code=503, detail="短信服务未配置，暂时无法发送验证码")
-    logger.info("演示模式：已为 %s 生成采购方登录验证码", _mask_phone(phone))
-    return MerchantCodeOut(phone=phone, code=code, expires_in=300, demo_mode=True)
+    # 演示模式：未绑定的手机号也照常发码并在登录时开出演示工作台。
+    # 之前这里对未注册手机号直接 404，公开演示里随便填一个号码就取不到演示码，
+    # 「手机验证码登录」这个入口等于演示不了——用户只会以为页面坏了。
+    code = issue_code(phone)
+    logger.info("演示模式：已为 %s 生成采购方登录验证码（已绑定=%s）", _mask_phone(phone), account is not None)
+    return MerchantCodeOut(phone=phone, code=code, expires_in=300, demo_mode=True, registered=account is not None)
+
+
+def create_demo_merchant(db: Session, phone: str) -> MerchantAccount:
+    """演示模式下为「没注册过、但用演示码登录」的手机号开一个独立演示工作台。
+
+    为什么不是全部落到默认演示商家：多商家隔离是按 merchant_id 做的，
+    让任意手机号共用一个工作台，会让陌生人互相看到对方的商品与洽谈记录。
+    这里为每个新手机号建一行，并补上同一套演示商品，保证登录后不是空工作台。
+    """
+    account = MerchantAccount(
+        store_name=f"演示商家·{phone[-4:]}",
+        account=f"demo_{phone}",
+        phone=phone,
+        email=f"{phone}@demo.local",
+        access_token=issue_token(),
+    )
+    db.add(account)
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        # 并发登录同一个新手机号时，另一条请求可能已经建好了这一行：回滚后复用即可。
+        db.rollback()
+        existing = get_merchant_by_phone(db, phone)
+        if existing is not None:
+            return existing
+        raise
+    db.refresh(account)
+    try:
+        seed_demo_data(db, account.id)
+    except SQLAlchemyError:
+        # 演示商品只是让工作台有东西可看，不该因为它失败就让用户登不进来
+        # （存量库里存在指向已删商品的孤儿规则时会撞唯一索引）。
+        db.rollback()
+        logger.warning("演示商家 %s 的演示商品初始化失败，工作台将为空", account.id, exc_info=True)
+    logger.info("演示模式：已为 %s 创建演示商家 %s", _mask_phone(phone), account.id)
+    return account
 
 
 @app.post("/api/auth/merchant/login-code", response_model=MerchantTokenOut)
@@ -440,10 +480,14 @@ def merchant_code_login(payload: MerchantCodeLoginIn, request: Request, db: Sess
     phone = payload.phone.strip()
     enforce(request, scope="login:merchant", key=client_ip(request), limit=10, window_seconds=900, message="尝试次数过多，请稍后再试")
     account = get_merchant_by_phone(db, phone)
-    if account is None:
+    if account is None and not settings.demo_mode:
         raise HTTPException(status_code=401, detail="手机号未绑定采购方账号")
+    # 先校验证码，再建账号：错码不能留下一个空的演示商家。
     if not check_code(phone, payload.code):
         raise HTTPException(status_code=401, detail="验证码错误或已过期")
+    if account is None:
+        account = create_demo_merchant(db, phone)
+        return {**merchant_profile_out(account), "access_token": account.access_token}
     account.access_token = issue_token()
     db.commit()
     db.refresh(account)

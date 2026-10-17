@@ -259,6 +259,9 @@ class MerchantCodeOut(BaseModel):
     code: str | None = None
     expires_in: int
     demo_mode: bool = False
+    # 该手机号是否已绑定商家账号。演示模式下未绑定也会发演示码（登录时为其开一个演示工作台），
+    # 前端据此提前说明，避免用户拿到码却在登录时才发现「未绑定」。旧后端不返回该字段。
+    registered: bool = True
 
 
 class MerchantRegisterIn(BaseModel):

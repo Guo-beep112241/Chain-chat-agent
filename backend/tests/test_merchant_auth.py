@@ -15,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+from app.ratelimit import limiter
 from app.seed import seed_demo_data, seed_merchant_account
 
 GOOD_LOGIN = {"account": "admin", "password": "链谈Agent123"}
@@ -147,8 +148,26 @@ def test_register_requires_terms_and_strong_password(monkeypatch):
     assert "密码" in weak.json()["detail"]
 
 
-def test_request_code_for_unbound_phone_explains_next_step(monkeypatch):
-    """未绑定手机号不能只回「未找到」——必须告诉用户去注册或改用密码登录。"""
+def test_demo_mode_issues_code_for_unbound_phone(monkeypatch):
+    """演示模式下未注册手机号也要能取到演示码。
+
+    公开演示里用户随手填一个手机号是常态；此前这里直接 404，
+    「手机号验证码登录」在演示站上等于不可用——取不到码，界面自然也不会自动填充。
+    """
+    client = make_client(monkeypatch)
+    response = client.post("/api/auth/merchant/request-code", json={"phone": "13911112222"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["demo_mode"] is True
+    assert body["registered"] is False
+    assert body["code"] and len(body["code"]) == 6
+
+
+def test_non_demo_unbound_phone_explains_next_step(monkeypatch):
+    """正式环境仍严格：未绑定手机号不能只回「未找到」，要告诉用户去注册或改用密码。"""
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.settings, "demo_mode", False)
     client = make_client(monkeypatch)
     response = client.post("/api/auth/merchant/request-code", json={"phone": "13911112222"})
     assert response.status_code == 404
@@ -161,6 +180,7 @@ def test_bound_phone_can_request_code_and_login_with_it(monkeypatch):
     client = make_client(monkeypatch)
     code_response = client.post("/api/auth/merchant/request-code", json={"phone": "13800138000"})
     assert code_response.status_code == 200
+    assert code_response.json()["registered"] is True
     code = code_response.json()["code"]
     assert code and len(code) == 6
 
@@ -172,10 +192,42 @@ def test_bound_phone_can_request_code_and_login_with_it(monkeypatch):
     assert again.status_code == 401
 
 
-def test_code_login_rejects_unbound_phone(monkeypatch):
+def test_demo_code_login_creates_workspace_for_unbound_phone(monkeypatch):
+    """演示模式下用演示码登录未绑定手机号 → 自动开一个带演示商品的独立工作台。
+
+    只发码不建账号的话，用户拿到码却卡在「手机号未绑定采购方账号」，
+    演示动线还是断的。
+    """
+    client = make_client(monkeypatch)
+    phone = "13911113333"
+    code = client.post("/api/auth/merchant/request-code", json={"phone": phone}).json()["code"]
+    login = client.post("/api/auth/merchant/login-code", json={"phone": phone, "code": code})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    assert token
+
+    # 新演示工作台要有商品，否则登录进去只会看到一个空工作台。
+    products = client.get("/api/products", headers={"Authorization": f"Bearer {token}"})
+    assert products.status_code == 200
+    assert len(products.json()) == 3
+
+    # 同一个手机号再次登录：复用原账号，不会重复建。
+    # 取码有 60 秒/次的限制，这里直接清一次限流计数，等价于「等过了 60 秒」。
+    limiter.reset()
+    code2 = client.post("/api/auth/merchant/request-code", json={"phone": phone}).json()["code"]
+    again = client.post("/api/auth/merchant/login-code", json={"phone": phone, "code": code2})
+    assert again.status_code == 200
+
+
+def test_code_login_rejects_unbound_phone_outside_demo(monkeypatch):
+    """非演示模式不允许「任意手机号 + 验证码」直接进商家端。"""
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module.settings, "demo_mode", False)
     client = make_client(monkeypatch)
     response = client.post("/api/auth/merchant/login-code", json={"phone": "13911112222", "code": "123456"})
     assert response.status_code == 401
+    assert "未绑定" in response.json()["detail"]
 
 
 def test_rate_limit_message_tells_user_how_long_to_wait(monkeypatch):

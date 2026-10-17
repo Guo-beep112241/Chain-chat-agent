@@ -149,7 +149,7 @@ export type SupplierCode = { phone: string; code: string | null; expires_in: num
 export type SupplierToken = { access_token: string; phone: string };
 export type MerchantProfile = { store_name: string; logo_emoji: string; logo_image: string; contact: string; category: string };
 export type MerchantToken = MerchantProfile & { access_token: string };
-export type MerchantCode = { phone: string; code: string | null; expires_in: number; demo_mode?: boolean };
+export type MerchantCode = { phone: string; code: string | null; expires_in: number; demo_mode?: boolean; registered?: boolean };
 export type RegisterPayload = {
   account: string;
   password: string;
