@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.main as main_module
+from app.config import get_settings
 from app.database import Base, get_db
 from app.main import app
 from app.seed import seed_demo_data, seed_merchant_account
@@ -32,6 +33,14 @@ def make_client(monkeypatch, upload_dir: Path) -> TestClient:
 
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(main_module, "UPLOAD_DIR", upload_dir)
+
+    # OCR 分支的入口条件是「百度密钥已配置」。这些用例 mock 的是识别函数，
+    # 不能反过来依赖本机 .env 里恰好有密钥——CI 没有 .env，否则会静默走进
+    # 「未配置 → unavailable」分支，导致断言在本地过、线上挂。
+    config = get_settings()
+    monkeypatch.setattr(config, "baidu_api_key", "test-baidu-key")
+    monkeypatch.setattr(config, "baidu_secret_key", "test-baidu-secret")
+    monkeypatch.setattr(main_module, "get_settings", lambda: config)
 
     async def fake_ocr(file_bytes, is_pdf=False):
         return {"company": "鼎盛制造厂", "credit_code": "91440300TEST00000X", "legal_person": "张三"}
