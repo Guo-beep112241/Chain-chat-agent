@@ -159,15 +159,24 @@ export type RegisterPayload = {
   agree_terms: boolean;
 };
 export type EvaluationDataset = { key: string; label: string; filename: string; exists: boolean; count: number; size_bytes: number };
-export type RuleEvaluationCase = { case_id: string; group: string; supplier: string; product: string; expected: string; actual: string; matched: boolean; score: number; reasons: string[] };
+/** 后端返回的结构化硬规则原因；前端按 code 翻译，避免英文界面直接显示中文 reasons。 */
+export type RuleReasonCode = {
+  code: "price_above_ceiling" | "moq_above_max" | "lead_time_above_max" | "payment_below_min" | "missing_qualifications";
+  quoted_price?: number; hard_max_price?: number;
+  moq?: number; max_moq?: number;
+  lead_days?: number; max_lead_days?: number;
+  payment_days?: number; min_payment_days?: number;
+  qualifications?: string[];
+};
+export type RuleEvaluationCase = { case_id: string; group: string; supplier: string; product: string; expected: string; actual: string; matched: boolean; score: number; reasons: string[]; reason_codes?: RuleReasonCode[] };
 export type RuleEvaluationResult = {
   total: number; matched: number; accuracy: number; distribution: Record<string, number>;
   matrix: Record<string, Record<string, number>>;
   groups: { group: string; total: number; matched: number; accuracy: number }[];
-  mismatches: RuleEvaluationCase[]; notes: string[];
+  mismatches: RuleEvaluationCase[]; notes: string[]; note_keys?: string[];
 };
 export type DialogueEvaluationResult = {
-  total: number; passed: number; pass_rate: number; llm_configured: boolean; fallback_count: number; note: string;
+  total: number; passed: number; pass_rate: number; llm_configured: boolean; fallback_count: number; note: string; note_key?: string;
   results: { case_id: string; type: string; message: string; intent: string; expected_strategy: string; reply: string; strategy_pass: boolean; safety_pass: boolean; passed: boolean; generation_mode: "model" | "fallback" }[];
 };
 export type MLEvaluationResult = {

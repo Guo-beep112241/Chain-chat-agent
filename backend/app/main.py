@@ -730,6 +730,7 @@ async def evaluate_dialogue_dataset(payload: DialogueEvaluationIn, _: MerchantAc
         "total": len(results), "passed": passed, "pass_rate": round(passed / len(results) * 100, 1) if results else 0,
         "llm_configured": bool(settings.deepseek_api_key), "fallback_count": sum(item["generation_mode"] == "fallback" for item in results), "results": results,
         "note": "策略命中采用关键词初筛，适合发现明显问题；最终验收仍应人工复核回复质量。",
+        "note_key": "keyword_prescreen",
     }
 
 

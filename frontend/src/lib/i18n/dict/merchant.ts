@@ -297,6 +297,12 @@ export const merchant = defineDict({
         available: "可用",
         missing: "缺失",
         meta: "{count} 条 · {size} KB",
+        fileLabel: "本地 JSON 数据集",
+        labels: {
+          rules: "商家底线规则",
+          suppliers: "供应商报价测试集",
+          dialogues: "AI谈判话术测试集",
+        },
       },
       errors: {
         datasets: "数据集读取失败",
@@ -315,6 +321,19 @@ export const merchant = defineDict({
         groupsTitle: "规则组准确率",
         group: "规则组 {group}",
         notesTitle: "测评说明",
+        notes: {
+          no_lead_time_field: "数据集没有交期字段，本轮按交期满分处理。",
+          payment_floor: "账期按“供应商提供的账期不得低于最低可接受天数”执行。",
+          supplier_size_not_scored: "供应商规模目前未参与评分。",
+          isolated_data: "测评数据不会写入正式供应商与谈判表。",
+        },
+        reasons: {
+          price_above_ceiling: "报价 ¥{quoted} 超过硬性上限 ¥{max}",
+          moq_above_max: "起订量 {moq} 件超过上限 {max} 件",
+          lead_time_above_max: "交付周期 {days} 天超过上限 {max} 天",
+          payment_below_min: "账期 {days} 天低于最低要求 {min} 天",
+          missing_qualifications: "缺少必备资质：{names}",
+        },
       },
       dialogue: {
         title: "AI话术抽样测评",
@@ -338,6 +357,12 @@ export const merchant = defineDict({
         },
         fallback:
           "本轮有 {count} 条使用备用回复，说明模型服务未成功返回；这些结果不能作为真实模型质量结论。",
+        note: {
+          keyword_prescreen:
+            "策略命中采用关键词初筛，适合发现明显问题；最终验收仍应人工复核回复质量。",
+        },
+        corpusNote:
+          "话术、意图与预期策略来自中文测试集，按原文展示；界面标签会跟随当前语言。",
       },
       ml: {
         title: "ML 模型测评",
@@ -359,6 +384,7 @@ export const merchant = defineDict({
       mismatches: {
         title: "误判案例",
         note: "最多展示前100条，用于定位规则语义和阈值问题。",
+        corpusNote: "供应商名称与商品名称来自中文测试集，按原文展示。",
         count: "{count} 条",
         scoreThreshold: "评分阈值导致分类差异",
         /** 拼接后端返回的多条原因。 */
@@ -691,6 +717,12 @@ export const merchant = defineDict({
         available: "Available",
         missing: "Missing",
         meta: "{count} {count:record|records} · {size} KB",
+        fileLabel: "Local JSON dataset",
+        labels: {
+          rules: "Buyer rule sets",
+          suppliers: "Supplier quote cases",
+          dialogues: "AI dialogue scripts",
+        },
       },
       errors: {
         datasets: "Could not load the datasets",
@@ -709,6 +741,20 @@ export const merchant = defineDict({
         groupsTitle: "Accuracy by rule group",
         group: "Rule group {group}",
         notesTitle: "Evaluation notes",
+        notes: {
+          no_lead_time_field: "The dataset has no lead-time field, so lead time is scored as full marks in this run.",
+          payment_floor:
+            "Payment terms are judged as “the supplier's terms must not be shorter than the minimum acceptable days”.",
+          supplier_size_not_scored: "Supplier size is not part of the score yet.",
+          isolated_data: "Evaluation runs never write to live supplier or negotiation records.",
+        },
+        reasons: {
+          price_above_ceiling: "Quote ¥{quoted} exceeds the hard ceiling ¥{max}",
+          moq_above_max: "MOQ {moq} exceeds the maximum {max}",
+          lead_time_above_max: "Lead time {days} days exceeds the maximum {max} days",
+          payment_below_min: "Payment terms {days} days are below the minimum {min} days",
+          missing_qualifications: "Missing required credentials: {names}",
+        },
       },
       dialogue: {
         title: "AI reply sample test",
@@ -731,6 +777,12 @@ export const merchant = defineDict({
         },
         fallback:
           "This run used fallback replies for {count} {count:case|cases}, so the model service did not return successfully; those results cannot be read as real model quality.",
+        note: {
+          keyword_prescreen:
+            "Strategy coverage uses keyword pre-screening, which is good at catching obvious problems; final acceptance should still include a manual quality review.",
+        },
+        corpusNote:
+          "Messages, intents and expected strategies come from a Chinese test corpus and are shown verbatim; interface labels follow the selected language.",
       },
       ml: {
         title: "ML model evaluation",
@@ -752,6 +804,7 @@ export const merchant = defineDict({
       mismatches: {
         title: "Mismatched cases",
         note: "Shows up to 100 cases, to help locate rule-semantics and threshold problems.",
+        corpusNote: "Supplier and product names come from the Chinese test corpus and are shown verbatim.",
         count: "{count} {count:case|cases}",
         scoreThreshold: "Score threshold caused the difference",
         separator: "; ",
